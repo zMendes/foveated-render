@@ -163,39 +163,35 @@ int main()
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
         shader.setMat4("projection", projection);
 
-        // render the loaded model
+        //cube 1
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f, 0.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
-        // glPatchParameteri(GL_PATCH_VERTICES, 3);
         renderCube();
-        GLenum err;
-        while ((err = glGetError()) != GL_NO_ERROR)
-        {
-            std::cerr << "OpenGL error after first render cube: " << err << std::endl;
-        }
 
+        //cube 2
         model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f, 12.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
         glEnable(GL_SHADING_RATE_IMAGE_NV);
-        glBindShadingRateImageNV(fov_texture);
         renderCube();
+
+        //cube 3
         model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(12.f, 12.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
         glEnable(GL_SHADING_RATE_IMAGE_NV);
-        glBindShadingRateImageNV(fov_texture);
         renderCube();
+
+        //cube 4
         model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(12.f, 0.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
         glEnable(GL_SHADING_RATE_IMAGE_NV);
-        glBindShadingRateImageNV(fov_texture);
         renderCube();
 
         glfwSwapBuffers(window);
