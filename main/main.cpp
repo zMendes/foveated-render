@@ -6,6 +6,9 @@
 
 #include "shader.h"
 #include "camera.h"
+#include "stb_image.h"
+#include "model.h"
+
 #include <iostream>
 #include <algorithm>
 #include <vector>
@@ -49,6 +52,7 @@ uint32_t m_shadingRateImageWidth = 0;
 uint32_t m_shadingRateImageHeight = 0;
 GLint m_shadingRateImageTexelWidth;
 GLint m_shadingRateImageTexelHeight;
+float posX, posY;
 
 // CAMERA
 Camera camera(glm::vec3(0.0f, 2.0f, 8.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
@@ -58,6 +62,8 @@ float lastY = SCR_HEIGHT / 2.0f;
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+
+bool showShading = false;
 int main()
 {
     // glfw: initialize and configure
@@ -133,6 +139,9 @@ int main()
     Shader screenShader("screen.vs", "screen.fs");
     shader.use();
 
+    std::string path = "../resources/sponza/sponza.obj";
+    Model sponza(path);
+
     GLenum err;
     while ((err = glGetError()) != GL_NO_ERROR)
     {
@@ -174,12 +183,25 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            texture, 0);
+
+    unsigned int rbo;
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);           // use a single renderbuffer object for both a depth AND stencil buffer.
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo); // now actually attach it
+    // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
     // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    glm::vec3 pointLightPositions[] = {
+        glm::vec3(0.7f, 2.2f, 2.0f),
+        glm::vec3(22.3f, 3.3f, -4.0f),
+        glm::vec3(-14.0f, 6.0f, -12.0f),
+        glm::vec3(10.0f, 50.0f, -3.0f)};
 
     while (!glfwWindowShouldClose(window))
     {
@@ -197,7 +219,9 @@ int main()
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_SHADING_RATE_IMAGE_NV);
-        createFoveationTexture(std::clamp(lastX / SCR_WIDTH, 0.0f, 1.0f), 1 - std::clamp(lastY / SCR_HEIGHT, 0.0f, 1.0f));
+        posX = std::clamp(lastX / SCR_WIDTH, 0.0f, 1.0f);
+        posY = 1 - std::clamp(lastY / SCR_HEIGHT, 0.0f, 1.0f);
+        createFoveationTexture(posX, posY);
         createTexture(fov_texture);
         uploadFoveationDataToTexture(fov_texture);
         glBindShadingRateImageNV(fov_texture);
@@ -207,36 +231,68 @@ int main()
         shader.setMat4("view", view);
         shader.setVec3("viewPos", camera.Position);
         // projection matrix
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
         shader.setMat4("projection", projection);
 
-        // cube 1
+        // directional light
+        shader.setVec3("dirLight.direction", -0.2f, 10.0f, -0.3f);
+        shader.setVec3("dirLight.ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
+        shader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
+
+        // point light 1
+        shader.setVec3("pointLights[0].position", pointLightPositions[0]);
+        shader.setVec3("pointLights[0].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[0].diffuse", 0.8f, 0.8f, 0.8f);
+        shader.setVec3("pointLights[0].specular", 1.0f, 1.0f, 1.0f);
+        shader.setFloat("pointLights[0].constant", 1.0f);
+        shader.setFloat("pointLights[0].linear", 0.09f);
+        shader.setFloat("pointLights[0].quadratic", 0.032f);
+        // point light 2
+        shader.setVec3("pointLights[1].position", pointLightPositions[1]);
+        shader.setVec3("pointLights[1].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
+        shader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
+        shader.setFloat("pointLights[1].constant", 1.0f);
+        shader.setFloat("pointLights[1].linear", 0.09f);
+        shader.setFloat("pointLights[1].quadratic", 0.032f);
+        // point light 3
+        shader.setVec3("pointLights[2].position", pointLightPositions[2]);
+        shader.setVec3("pointLights[2].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
+        shader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
+        shader.setFloat("pointLights[2].constant", 1.0f);
+        shader.setFloat("pointLights[2].linear", 0.09f);
+        shader.setFloat("pointLights[2].quadratic", 0.032f);
+        // point light 4
+        shader.setVec3("pointLights[3].position", pointLightPositions[3]);
+        shader.setVec3("pointLights[3].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
+        shader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
+        shader.setFloat("pointLights[3].constant", 1.0f);
+        shader.setFloat("pointLights[3].linear", 0.09f);
+        shader.setFloat("pointLights[3].quadratic", 0.032f);
+
+        // spotLight
+        shader.setVec3("spotLight.position", camera.Position);
+        shader.setVec3("spotLight.direction", camera.Front);
+        shader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
+        shader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
+        shader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
+        shader.setFloat("spotLight.constant", 1.0f);
+        shader.setFloat("spotLight.linear", 0.09f);
+        shader.setFloat("spotLight.quadratic", 0.00032f);
+        shader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
+        shader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
+
+        shader.setBool("showShading", showShading);
+
+        // SPONZA
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f, 0.f, 0.0f));
-        model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
+        model = glm::scale(model, glm::vec3(.4f, .4f, .4f));
         shader.setMat4("model", model);
-        renderCube();
-
-        // cube 2
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 12.f, 0.0f));
-        model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
-        shader.setMat4("model", model);
-        renderCube();
-
-        // cube 3
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(12.f, 12.f, 0.0f));
-        model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
-        shader.setMat4("model", model);
-        renderCube();
-
-        // cube 4
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(12.f, 0.f, 0.0f));
-        model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
-        shader.setMat4("model", model);
-        renderCube();
+        sponza.Draw(shader);
 
         // ON SCREEN FRAMEBUFFER
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -269,6 +325,8 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        showShading = !showShading;
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)

@@ -3,13 +3,13 @@ CXX = g++
 CXXFLAGS = -Wall -I../include
 
 # Source files
-SRCS = main.cpp ../glad.c
+SRCS = main.cpp ../glad.c ../stb_image.cpp
 
 # Output executable
 OUT = my_program
 
 # Libraries
-LIBS = -lglfw -lGL
+LIBS = -lglfw -lassimp
 
 # Rules
 all: $(OUT)
