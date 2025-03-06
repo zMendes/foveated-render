@@ -56,8 +56,8 @@ bool firstMouse = true;
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 
-float deltaTime = 0.0f; // Time between current frame and last frame
-float lastFrame = 0.0f; // Time of last frame
+float deltaTime = 0.0f;
+float lastFrame = 0.0f;
 int main()
 {
     // glfw: initialize and configure
@@ -117,7 +117,6 @@ int main()
     // OPENGL STATE
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_SHADING_RATE_IMAGE_NV);
-    glEnable(GL_SHADING_RATE_IMAGE_PER_PRIMITIVE_NV);
 
     glGetIntegerv(GL_SHADING_RATE_IMAGE_TEXEL_HEIGHT_NV, &m_shadingRateImageTexelHeight);
     glGetIntegerv(GL_SHADING_RATE_IMAGE_TEXEL_WIDTH_NV, &m_shadingRateImageTexelWidth);
@@ -131,6 +130,7 @@ int main()
     createFoveationTexture(0.5, 0.5);
 
     Shader shader("vrs.vs", "vrs.fs");
+    Shader screenShader("screen.vs", "screen.fs");
     shader.use();
 
     GLenum err;
@@ -139,21 +139,68 @@ int main()
         std::cerr << "OpenGL error before main loop: " << err << std::endl;
     }
 
+    // QUAD VAO
+    float quadVertices[] = {// vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+                            // positions   // texCoords
+                            -1.0f, 1.0f, 0.0f, 1.0f,
+                            -1.0f, -1.0f, 0.0f, 0.0f,
+                            1.0f, -1.0f, 1.0f, 0.0f,
+
+                            -1.0f, 1.0f, 0.0f, 1.0f,
+                            1.0f, -1.0f, 1.0f, 0.0f,
+                            1.0f, 1.0f, 1.0f, 1.0f};
+    unsigned int quadVAO, quadVBO;
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
+
+    // FRAMEBUFFER
+    unsigned int fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    unsigned int texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           texture, 0);
+    // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
     while (!glfwWindowShouldClose(window))
     {
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // input
         processInput(window);
 
-        // render
+        // FRAMEBUFFER
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // also clear the depth buffer now!
-
-        // render the triangle
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         shader.use();
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_SHADING_RATE_IMAGE_NV);
+        createFoveationTexture(std::clamp(lastX / SCR_WIDTH, 0.0f, 1.0f), 1 - std::clamp(lastY / SCR_HEIGHT, 0.0f, 1.0f));
+        createTexture(fov_texture);
+        uploadFoveationDataToTexture(fov_texture);
+        glBindShadingRateImageNV(fov_texture);
 
         // view matrix
         glm::mat4 view = camera.GetViewMatrix();
@@ -163,36 +210,44 @@ int main()
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
         shader.setMat4("projection", projection);
 
-        //cube 1
+        // cube 1
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f, 0.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
         renderCube();
 
-        //cube 2
+        // cube 2
         model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(0.0f, 12.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
-        glEnable(GL_SHADING_RATE_IMAGE_NV);
         renderCube();
 
-        //cube 3
+        // cube 3
         model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(12.f, 12.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
-        glEnable(GL_SHADING_RATE_IMAGE_NV);
         renderCube();
 
-        //cube 4
+        // cube 4
         model = glm::mat4(1.0f);
         model = glm::translate(model, glm::vec3(12.f, 0.f, 0.0f));
         model = glm::scale(model, glm::vec3(5.f, 5.f, 5.f));
         shader.setMat4("model", model);
-        glEnable(GL_SHADING_RATE_IMAGE_NV);
         renderCube();
+
+        // ON SCREEN FRAMEBUFFER
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDisable(GL_DEPTH_TEST);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        screenShader.use();
+        glBindVertexArray(quadVAO);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -216,7 +271,6 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(RIGHT, deltaTime);
 }
 
-// glfw: whenever the window size changed (by OS or user resize) this callback function executes
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
 {
     glViewport(0, 0, width, height);
@@ -267,13 +321,9 @@ void createFoveationTexture(float centerX, float centerY)
             {
                 m_shadingRateImageData[x + y * width] = 2;
             }
-            else if (d < 0.45f)
-            {
-                m_shadingRateImageData[x + y * width] = 3;
-            }
             else
             {
-                m_shadingRateImageData[x + y * width] = 0;
+                m_shadingRateImageData[x + y * width] = 3;
             }
         }
     }
@@ -306,15 +356,6 @@ void setupShadingRatePalette()
 
     glShadingRateImagePaletteNV(0, 0, palSize, palette);
     delete[] palette;
-
-    GLenum *paletteFullRate = new GLenum[palSize];
-    for (int i = 0; i < palSize; ++i)
-    {
-        paletteFullRate[i] = GL_SHADING_RATE_1_INVOCATION_PER_PIXEL_NV;
-    }
-
-    glShadingRateImagePaletteNV(1, 0, palSize, paletteFullRate);
-    delete[] paletteFullRate;
 }
 unsigned int cubeVAO = 0;
 unsigned int cubeVBO = 0;
@@ -384,11 +425,6 @@ void renderCube()
     }
     // render Cube
     glBindVertexArray(cubeVAO);
-    glEnable(GL_SHADING_RATE_IMAGE_NV);
-    createTexture(fov_texture);
-    uploadFoveationDataToTexture(fov_texture);
-    glBindShadingRateImageNV(fov_texture);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
     GLenum err;
