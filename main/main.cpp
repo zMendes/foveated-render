@@ -42,8 +42,8 @@ void renderCube();
 void createTexture(GLuint &glid);
 
 // settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
+const unsigned int SCR_WIDTH = 1600;
+const unsigned int SCR_HEIGHT = 900;
 
 // VRS stuff
 GLuint fov_texture;
@@ -54,6 +54,7 @@ GLint m_shadingRateImageTexelWidth;
 GLint m_shadingRateImageTexelHeight;
 float posX = 0.5;
 float posY = 0.5;
+bool shadingKeyPressed = false;
 
 // CAMERA
 Camera camera(glm::vec3(0.0f, 2.0f, 8.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
@@ -324,8 +325,15 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !shadingKeyPressed){
         showShading = !showShading;
+        shadingKeyPressed = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
+    {
+        shadingKeyPressed = false;
+    }
+
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
