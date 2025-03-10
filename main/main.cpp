@@ -52,7 +52,8 @@ uint32_t m_shadingRateImageWidth = 0;
 uint32_t m_shadingRateImageHeight = 0;
 GLint m_shadingRateImageTexelWidth;
 GLint m_shadingRateImageTexelHeight;
-float posX, posY;
+float posX = 0.5;
+float posY = 0.5;
 
 // CAMERA
 Camera camera(glm::vec3(0.0f, 2.0f, 8.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
@@ -219,8 +220,6 @@ int main()
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_SHADING_RATE_IMAGE_NV);
-        posX = std::clamp(lastX / SCR_WIDTH, 0.0f, 1.0f);
-        posY = 1 - std::clamp(lastY / SCR_HEIGHT, 0.0f, 1.0f);
         createFoveationTexture(posX, posY);
         createTexture(fov_texture);
         uploadFoveationDataToTexture(fov_texture);
@@ -236,13 +235,13 @@ int main()
 
         // directional light
         shader.setVec3("dirLight.direction", -0.2f, 10.0f, -0.3f);
-        shader.setVec3("dirLight.ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("dirLight.ambient", 0.2f, 0.2f, 0.2f);
         shader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
         shader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
 
         // point light 1
         shader.setVec3("pointLights[0].position", pointLightPositions[0]);
-        shader.setVec3("pointLights[0].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[0].ambient", 0.2f, 0.2f, 0.2f);
         shader.setVec3("pointLights[0].diffuse", 0.8f, 0.8f, 0.8f);
         shader.setVec3("pointLights[0].specular", 1.0f, 1.0f, 1.0f);
         shader.setFloat("pointLights[0].constant", 1.0f);
@@ -250,7 +249,7 @@ int main()
         shader.setFloat("pointLights[0].quadratic", 0.032f);
         // point light 2
         shader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        shader.setVec3("pointLights[1].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[1].ambient", 0.2f, 0.2f, 0.2f);
         shader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
         shader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
         shader.setFloat("pointLights[1].constant", 1.0f);
@@ -258,7 +257,7 @@ int main()
         shader.setFloat("pointLights[1].quadratic", 0.032f);
         // point light 3
         shader.setVec3("pointLights[2].position", pointLightPositions[2]);
-        shader.setVec3("pointLights[2].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[2].ambient", 0.2f, 0.2f, 0.2f);
         shader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
         shader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
         shader.setFloat("pointLights[2].constant", 1.0f);
@@ -266,7 +265,7 @@ int main()
         shader.setFloat("pointLights[2].quadratic", 0.032f);
         // point light 4
         shader.setVec3("pointLights[3].position", pointLightPositions[3]);
-        shader.setVec3("pointLights[3].ambient", 0.05f, 0.05f, 0.05f);
+        shader.setVec3("pointLights[3].ambient", 0.2f, 0.2f, 0.2f);
         shader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
         shader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
         shader.setFloat("pointLights[3].constant", 1.0f);
@@ -342,13 +341,23 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
         lastY = ypos;
         firstMouse = false;
     }
+    const float sensitivity = 0.3f;
+
     float xoffset = xpos - lastX;
     float yoffset = lastY - ypos; // reversed: y ranges bottom to top
     lastX = xpos;
     lastY = ypos;
-    const float sensitivity = 0.3f;
     xoffset *= sensitivity;
     yoffset *= sensitivity;
+
+    if (showShading)
+    {
+        posX = xpos / SCR_WIDTH * sensitivity;
+        posY = 1 - ypos / SCR_HEIGHT * sensitivity;
+        posX = std::clamp(posX, 0.f, 1.f);
+        posY = std::clamp(posY, 0.f, 1.f);
+        return;
+    }
 
     camera.ProcessMouseMovement(xoffset, yoffset);
 }
