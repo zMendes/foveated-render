@@ -4,6 +4,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "imgui.h"
+#include "imgui_impl_opengl3.h"
+#include "imgui_impl_glfw.h"
+
 #include "shader.h"
 #include "camera.h"
 #include "stb_image.h"
@@ -40,6 +44,7 @@ void setupShadingRatePalette();
 void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id, GLenum severity, GLsizei length, const char *message, const void *userParam);
 void renderCube();
 void createTexture(GLuint &glid);
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 
 // settings
 const unsigned int SCR_WIDTH = 1600;
@@ -54,7 +59,7 @@ GLint m_shadingRateImageTexelWidth;
 GLint m_shadingRateImageTexelHeight;
 float posX = 0.5;
 float posY = 0.5;
-bool shadingKeyPressed = false;
+bool isCursorEnabled = false;
 
 // CAMERA
 Camera camera(glm::vec3(0.0f, 2.0f, 8.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, 0.0f);
@@ -82,12 +87,19 @@ int main()
         glfwTerminate();
         return -1;
     }
+
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
+
+    // IMGUI
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 460 core");
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
@@ -213,6 +225,10 @@ int main()
 
         processInput(window);
 
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
         // FRAMEBUFFER
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
@@ -305,9 +321,20 @@ int main()
         glBindTexture(GL_TEXTURE_2D, texture);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
+        glDisable(GL_DEPTH_TEST);
+        ImGui::Begin("Options");
+        ImGui::Checkbox("Shading rate view", &showShading);
+        ImGui::End();
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
     glfwTerminate();
     return 0;
@@ -325,15 +352,6 @@ void processInput(GLFWwindow *window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !shadingKeyPressed){
-        showShading = !showShading;
-        shadingKeyPressed = true;
-    }
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
-    {
-        shadingKeyPressed = false;
-    }
-
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
@@ -341,8 +359,25 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
+{
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+    {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        isCursorEnabled = true;
+    }
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
+    {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+        isCursorEnabled = false;
+        firstMouse = true;
+    }
+}
+
 void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 {
+    if (!isCursorEnabled)
+        return;
     if (firstMouse)
     {
         lastX = xpos;
@@ -360,8 +395,10 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 
     if (showShading)
     {
-        posX = xpos / SCR_WIDTH * sensitivity;
-        posY = 1 - ypos / SCR_HEIGHT * sensitivity;
+        float xoffset_fov = ((xpos / SCR_WIDTH) - posX) * sensitivity;
+        float yoffset_fov = ((1 - ypos / SCR_HEIGHT) - posY) * sensitivity;
+        posX += xoffset_fov;
+        posY += yoffset_fov;
         posX = std::clamp(posX, 0.f, 1.f);
         posY = std::clamp(posY, 0.f, 1.f);
         return;
