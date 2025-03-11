@@ -5,6 +5,8 @@ Exploring VRS OpenGL `GL_SHADING_RATE_IMAGE_NV` extension to enable foveated ren
 
 ## Demo
 
+
+
 ### How it works
 
 Variable Rate Shading (VRS) is enabled and controlled by a shading rate image.
@@ -17,10 +19,6 @@ Variable Rate Shading (VRS) is enabled and controlled by a shading rate image.
 - Green: 1 invocation per 4x4 pixels
 
 This mimics the way the human eye perceives detail—maximum acuity in the foveal center and lower detail in peripheral regions.
-
-Press `SPACEBAR` to toggle between the default scene view and the VRS shading view.
-In the VRS shading view, you can adjust the focal point of the maximum shading rate.
-
 
 ### Comparison
 

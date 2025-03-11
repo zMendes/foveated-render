@@ -289,18 +289,6 @@ int main()
         shader.setFloat("pointLights[3].linear", 0.09f);
         shader.setFloat("pointLights[3].quadratic", 0.032f);
 
-        // spotLight
-        shader.setVec3("spotLight.position", camera.Position);
-        shader.setVec3("spotLight.direction", camera.Front);
-        shader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
-        shader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
-        shader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("spotLight.constant", 1.0f);
-        shader.setFloat("spotLight.linear", 0.09f);
-        shader.setFloat("spotLight.quadratic", 0.00032f);
-        shader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
-        shader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
-
         shader.setBool("showShading", showShading);
 
         // SPONZA
@@ -376,24 +364,9 @@ void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 
 void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 {
-    if (!isCursorEnabled)
-        return;
-    if (firstMouse)
-    {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
     const float sensitivity = 0.3f;
 
-    float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed: y ranges bottom to top
-    lastX = xpos;
-    lastY = ypos;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    if (showShading)
+    if (!isCursorEnabled)
     {
         float xoffset_fov = ((xpos / SCR_WIDTH) - posX) * sensitivity;
         float yoffset_fov = ((1 - ypos / SCR_HEIGHT) - posY) * sensitivity;
@@ -403,6 +376,19 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
         posY = std::clamp(posY, 0.f, 1.f);
         return;
     }
+    if (firstMouse)
+    {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; // reversed: y ranges bottom to top
+    lastX = xpos;
+    lastY = ypos;
+    xoffset *= sensitivity;
+    yoffset *= sensitivity;
 
     camera.ProcessMouseMovement(xoffset, yoffset);
 }
