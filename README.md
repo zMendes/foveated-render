@@ -5,7 +5,10 @@ Exploring VRS OpenGL `GL_SHADING_RATE_IMAGE_NV` extension to enable foveated ren
 
 ## Demo
 
-https://github.com/user-attachments/assets/d5b37412-e007-4eb6-bd9f-9f869ffc064c
+
+https://github.com/user-attachments/assets/660baaab-4bcf-4b3f-915c-be4ae9647da1
+
+
 
 ### How it works
 
