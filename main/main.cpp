@@ -50,6 +50,9 @@ void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 const unsigned int SCR_WIDTH = 1600;
 const unsigned int SCR_HEIGHT = 900;
 
+const unsigned int G_WIDTH = 1600 / 4;
+const unsigned int G_HEIGHT = 900 / 4;
+
 // VRS stuff
 GLuint fov_texture;
 std::vector<uint8_t> m_shadingRateImageData;
@@ -149,6 +152,7 @@ int main()
     setupShadingRatePalette();
     createFoveationTexture(0.5, 0.5);
 
+    Shader ("geometry.vs", "geometry.fs");
     Shader shader("vrs.vs", "vrs.fs");
     Shader screenShader("screen.vs", "screen.fs");
     shader.use();
@@ -204,7 +208,6 @@ int main()
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);           // use a single renderbuffer object for both a depth AND stencil buffer.
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo); // now actually attach it
     // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
-    // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -229,12 +232,23 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // FRAMEBUFFER
+        glm::mat4 view = camera.GetViewMatrix();
+        // projection matrix
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
+
+        // SPONZA
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.f, 0.0f));
+        model = glm::scale(model, glm::vec3(.4f, .4f, .4f));
+
+        // LIGHT FRAMEBUFFER
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         shader.use();
-
+        glActiveTexture(GL_TEXTURE0);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_SHADING_RATE_IMAGE_NV);
         createFoveationTexture(posX, posY);
@@ -243,13 +257,9 @@ int main()
         glBindShadingRateImageNV(fov_texture);
 
         // view matrix
-        glm::mat4 view = camera.GetViewMatrix();
         shader.setMat4("view", view);
         shader.setVec3("viewPos", camera.Position);
-        // projection matrix
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
         shader.setMat4("projection", projection);
-
         // directional light
         shader.setVec3("dirLight.direction", -0.2f, 10.0f, -0.3f);
         shader.setVec3("dirLight.ambient", 0.2f, 0.2f, 0.2f);
@@ -292,9 +302,6 @@ int main()
         shader.setBool("showShading", showShading);
 
         // SPONZA
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.f, 0.0f));
-        model = glm::scale(model, glm::vec3(.4f, .4f, .4f));
         shader.setMat4("model", model);
         sponza.Draw(shader);
 
