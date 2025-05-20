@@ -1,6 +1,6 @@
 #version 460
-#extension GL_NV_shading_rate_image : enable
-#extension GL_NV_primitive_shading_rate : enable
+//#extension GL_NV_shading_rate_image : enable
+//#extension GL_NV_primitive_shading_rate : enable
 
 struct Material {
     sampler2D texture_diffuse1;
@@ -37,7 +37,6 @@ uniform vec3 viewPos;
 uniform Material material;
 uniform DirLight dirLight;
 uniform PointLight pointLights[NR_POINT_LIGHTS];
-uniform bool showShading;
 
 out vec4 FragColor;
 
@@ -53,23 +52,6 @@ void main() {
     result += CalcPointLight(pointLights[i], norm, fragPos, viewDir);
 
     FragColor = vec4(result, 1.0);
-
-    if (showShading) {
-        int maxCoarse = max(gl_FragmentSizeNV.x, gl_FragmentSizeNV.y);
-
-        if (maxCoarse == 1) {
-            FragColor = vec4(1,0,0,1);
-        }
-        else if (maxCoarse == 2) {
-            FragColor = vec4(1,1,0,1);
-        }
-        else if (maxCoarse == 4) {
-            FragColor = vec4(0,1,0,1);
-        }
-        else {
-            FragColor = vec4(1,1,1,1);
-        }
-    }
 }
 
 vec3 CalcDirLight(DirLight light, vec3 normal, vec3 viewDir) {

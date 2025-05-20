@@ -1,7 +1,7 @@
 #version 460 core
 
-#extension GL_NV_primitive_shading_rate: require
-#extension GL_NV_viewport_array2 : enable
+//#extension GL_NV_primitive_shading_rate: require
+//#extension GL_NV_viewport_array2 : enable
 
 in layout(location=0) vec3 aPos;
 in layout(location=1) vec3 aNormal;
