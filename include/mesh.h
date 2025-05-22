@@ -25,8 +25,14 @@ public:
     std::vector<Texture> textures;
     float shininess;
     unsigned int VAO;
+    glm::vec3 diffuseColor; //
+    glm::vec3 specularColor;
 
     Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures, float shininess) : vertices(vertices), indices(indices), textures(textures), shininess(shininess)
+    {
+        setupMesh();
+    }
+    Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures, float shininess, glm::vec3 diffuseColor, glm::vec3 specularColor) : vertices(vertices), indices(indices), textures(textures), shininess(shininess), diffuseColor(diffuseColor), specularColor(specularColor)
     {
         setupMesh();
     }
@@ -36,6 +42,9 @@ public:
 
         unsigned int diffuseNr = 1;
         unsigned int specularNr = 1;
+        bool hasDiffuse = false;
+        bool hasSpecular = false;
+
         for (unsigned int i = 0; i < textures.size(); i++)
         {
             glActiveTexture(GL_TEXTURE0 + i); // activate texture unit first
@@ -43,9 +52,15 @@ public:
             std::string number;
             std::string name = textures[i].type;
             if (name == "texture_diffuse")
+            {
+                hasDiffuse = true;
                 number = std::to_string(diffuseNr++);
+            }
             else if (name == "texture_specular")
+            {
+                hasSpecular = true;
                 number = std::to_string(specularNr++);
+            }
             else if (name == "texture_normal")
                 number = 1;
             else if (name == "texture_height")
@@ -53,6 +68,12 @@ public:
             shader.setInt(("material." + name + number).c_str(), i);
             glBindTexture(GL_TEXTURE_2D, textures[i].id);
         }
+
+        shader.setVec3("material.diffuseColor", diffuseColor);
+        shader.setBool("material.hasDiffuseTexture", hasDiffuse);
+        shader.setVec3("material.specularColor", specularColor);
+        shader.setBool("material.hasSpecularTexture", hasSpecular);
+
         glActiveTexture(GL_TEXTURE0);
         // draw mesh
         glBindVertexArray(VAO);

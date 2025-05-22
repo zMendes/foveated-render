@@ -70,6 +70,9 @@ private:
         std::vector<unsigned int> indices;
         std::vector<Texture> textures;
 
+        glm::vec3 diffuseColor(1.0f, 1.0f, 1.0f);  // default fallback diffuse
+        glm::vec3 specularColor(1.0f, 1.0f, 1.0f); // default fallback specular
+
         for (unsigned int i = 0; i < mesh->mNumVertices; i++)
         {
             Vertex vertex;
@@ -137,8 +140,28 @@ private:
             // height map
             std::vector<Texture> heightMaps = loadMaterialTextures(material, aiTextureType_AMBIENT, "texture_height");
             textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
+
+            if (diffuseMaps.empty())
+            {
+                aiColor3D color(0.f, 0.f, 0.f);
+                if (material->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
+                {
+                    diffuseColor = glm::vec3(color.r, color.g, color.b);
+                }
+            }
+
+            // If no specular texture, get specular color from material
+            if (specularMaps.empty())
+            {
+                aiColor3D color(0.f, 0.f, 0.f);
+                if (material->Get(AI_MATKEY_COLOR_SPECULAR, color) == AI_SUCCESS)
+                {
+                    specularColor = glm::vec3(color.r, color.g, color.b);
+                }
+            }
         }
-        return Mesh(vertices, indices, textures, shininess);
+
+        return Mesh(vertices, indices, textures, shininess, diffuseColor, specularColor);
     }
     std::vector<Texture> loadMaterialTextures(aiMaterial *mat, aiTextureType type, std::string typeName)
     {

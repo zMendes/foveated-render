@@ -27,27 +27,30 @@ public:
 
         try
         {
-            // Open files
-            vShaderFile.open(vertexPath);
-            fShaderFile.open(fragmentPath);
+            std::ifstream vShaderFile(vertexPath);
+            std::ifstream fShaderFile(fragmentPath);
+
+            if (!vShaderFile.is_open())
+                throw std::runtime_error(std::string("Failed to open vertex shader file: ") + vertexPath);
+
+            if (!fShaderFile.is_open())
+                throw std::runtime_error(std::string("Failed to open fragment shader file: ") + fragmentPath);
 
             std::stringstream vShaderStream, fShaderStream;
 
-            // Read file contents into streams
             vShaderStream << vShaderFile.rdbuf();
             fShaderStream << fShaderFile.rdbuf();
 
-            // Close file handlers
             vShaderFile.close();
             fShaderFile.close();
 
-            // Convert stream into string
             vertexCode = vShaderStream.str();
             fragmentCode = fShaderStream.str();
         }
-        catch (std::ifstream::failure &e)
+        catch (const std::exception &e)
         {
-            std::cout << "ERROR::SHADER::FILE_NOT_SUCCESSFULLY_READ: " << e.what() << std::endl;
+            std::cout << "ERROR::SHADER::FILE_NOT_SUCCESSFULLY_READ\n"
+                      << e.what() << std::endl;
         }
 
         // Convert to C-style strings
