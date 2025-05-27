@@ -181,13 +181,16 @@ int main()
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+        float fps = 1.0f / deltaTime;
+
+        std::cout << "FPS: " << fps << std::endl;
 
         processInput(window);
 
         auto [gaze_deg_x, gaze_deg_y] = pixelsToDegreesFromNormalized(posX, posY);
         gaze_history.push_back({gaze_deg_x, gaze_deg_y});
 
-        gaze_history.size() > 10 ? gaze_history.pop_front() : void() ;
+        gaze_history.size() > 10 ? gaze_history.pop_front() : void();
 
         if (gaze_history.size() == 10)
         {
