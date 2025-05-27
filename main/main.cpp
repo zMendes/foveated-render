@@ -36,6 +36,8 @@ void renderScene(Shader &shader, Model model);
 glm::vec2 gazeAngleToNorm(float predicted_x_deg, float predicted_y_deg);
 std::pair<float, float> pixelsToDegrees(float px_x, float px_y);
 std::pair<float, float> pixelsToDegreesFromNormalized(float norm_x, float norm_y);
+glm::mat4 perspectiveOffCenter(float left, float right, float bottom, float top, float near, float far);
+glm::mat4 getProjection(float radius, float multi);
 
 // settings
 const unsigned int SCR_WIDTH = 1920;
@@ -43,7 +45,17 @@ const unsigned int SCR_HEIGHT = 1080;
 float SCR_WIDTH_MM = 382.0f;
 float SCR_HEIGHT_MM = 215.0f;
 float DIST_MM = 800.0f;
-float ASPECT_RATIO = SCR_WIDTH / SCR_HEIGHT;
+float ASPECT_RATIO = (float)SCR_WIDTH / (float)SCR_HEIGHT;
+float near = 0.1f;
+float far = 10000.0f;
+float innerRadius = 0.2f;
+float middleRadius = 0.5f;
+
+int innerWidth = 2 * innerRadius * SCR_WIDTH;
+int innerHeight = 2 * innerRadius * SCR_HEIGHT;
+
+int mediumWidth = 2 * middleRadius * SCR_WIDTH / 2;
+int mediumHeight = 2 * middleRadius * SCR_HEIGHT / 2;
 
 float posX = 0.5;
 float posY = 0.5;
@@ -71,24 +83,20 @@ int main()
     // std::cout << "Stream Provider " << streamsProvider;
     // std::cout << "API " << api->GetStatistics();
 
-    // api->GetTrackerController()->TrackRectangle({ 0,0,2560,1440 });
+    // api->GetTrackerController()->TrackRectangle({ 0,0,SCR_WIDTH,SCR_HEIGHT });
     // GazePoint gazePoint;
 
     std::deque<std::array<float, 2>> gaze_history;
-
     glm::vec2 predicted;
 
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "saccade_predictor");
-
-    // Create session options
     Ort::SessionOptions session_options;
     session_options.SetIntraOpNumThreads(1);
-
-    // Load the model
     const char *model_path = "/home/loe/Downloads/saccade_predictor.onnx";
     Ort::Session session(env, model_path, session_options);
-
-    std::cout << "Model loaded successfully!" << std::endl;
+    std::array<int64_t, 3> input_shape = {1, 10, 2};
+    const char *input_names[] = {"input"};
+    const char *output_names[] = {"output"};
 
     // glfw: initialize and configure
     glfwInit();
@@ -97,7 +105,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // glfw window creation
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Foveated render", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Demo", NULL, NULL);
     if (window == NULL)
     {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -113,15 +121,10 @@ int main()
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
 
-    // IMGUI
-    // ImGui::CreateContext();
-    // ImGui_ImplGlfw_InitForOpenGL(window, true);
-    // ImGui_ImplOpenGL3_Init("#version 460 core");
-
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         std::cout << "Failed to initialize GLAD" << std::endl;
-        return -1; // Correct return here, exiting if GLAD fails
+        return -1;
     }
 
     // OPENGL STATE
@@ -162,8 +165,8 @@ int main()
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
 
-    FBO fboHigh = createFBO(SCR_WIDTH, SCR_HEIGHT);
-    FBO fboMedium = createFBO(SCR_WIDTH / 2, SCR_HEIGHT / 2);
+    FBO fboHigh = createFBO(innerWidth, innerHeight);
+    FBO fboMedium = createFBO(mediumWidth, mediumHeight);
     FBO fboLow = createFBO(SCR_WIDTH / 4, SCR_HEIGHT / 4);
 
     glm::vec3 pointLightPositions[] = {
@@ -175,10 +178,6 @@ int main()
     while (!glfwWindowShouldClose(window))
     {
 
-        // api->Update();
-
-        // streamsProvider->GetLatestGazePoint(gazePoint);
-
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
@@ -186,25 +185,19 @@ int main()
         processInput(window);
 
         auto [gaze_deg_x, gaze_deg_y] = pixelsToDegreesFromNormalized(posX, posY);
-        //std::cout << "Gaze point (px):" << posX << " - " << posY << std::endl;
-        //std::cout << "True Gaze (dva): " << gaze_deg_x << " - " << gaze_deg_y << std::endl;
         gaze_history.push_back({gaze_deg_x, gaze_deg_y});
-        if (gaze_history.size() > 10)
-            gaze_history.pop_front();
 
-        // Infer only if we have 10 points
+        gaze_history.size() > 10 ? gaze_history.pop_front() : void() ;
+
         if (gaze_history.size() == 10)
         {
-            // Prepare input tensor data
+
             std::vector<float> input_tensor_values;
             for (const auto &pt : gaze_history)
             {
                 input_tensor_values.push_back(pt[0]); // x
                 input_tensor_values.push_back(pt[1]); // y
             }
-
-            // Define input shape: [1, 10, 2]
-            std::array<int64_t, 3> input_shape = {1, 10, 2};
 
             Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
                 OrtArenaAllocator, OrtMemTypeDefault);
@@ -213,30 +206,20 @@ int main()
                 memory_info, input_tensor_values.data(), input_tensor_values.size(),
                 input_shape.data(), input_shape.size());
 
-            // Prepare input & output names
-            const char *input_names[] = {"input"};   // Use your actual input name
-            const char *output_names[] = {"output"}; // Use your actual output name
-
             auto output_tensors = session.Run(Ort::RunOptions{nullptr},
                                               input_names, &input_tensor, 1,
                                               output_names, 1);
 
-            // Read output: should be shape [1, 2]
             float *output = output_tensors.front().GetTensorMutableData<float>();
             float predicted_x = output[0];
             float predicted_y = output[1];
 
             predicted = gazeAngleToNorm(predicted_x, predicted_y);
-
-            //std::cout << "Predicted landing (px): " << predicted[0] << " " << predicted[1] << std::endl;
         }
 
-        // ImGui_ImplOpenGL3_NewFrame();
-        // ImGui_ImplGlfw_NewFrame();
-        // ImGui::NewFrame();
-
+        glm::mat4 innerProjection = getProjection(innerRadius, 5.0f);
+        glm::mat4 mediumProjection = getProjection(middleRadius, 0.0f);
         glm::mat4 view = camera.GetViewMatrix();
-        // projection matrix
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
 
         // conference
@@ -249,59 +232,56 @@ int main()
         shader.setMat4("view", view);
         shader.setVec3("viewPos", camera.Position);
         shader.setMat4("projection", projection);
-        // directional light
         shader.setVec3("dirLight.direction", -0.2f, 10.0f, -0.3f);
         shader.setVec3("dirLight.ambient", 0.2f, 0.2f, 0.2f);
-        // directional light
-        shader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);  // from 0.4 to 1
-        shader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f); // from 0.5 to 1
-        // point lights — increase diffuse and specular intensity
+        shader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
+        shader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
         for (int i = 0; i < 4; i++)
         {
-            shader.setVec3("pointLights[" + std::to_string(i) + "].diffuse", 1.0f, 1.0f, 1.0f); // from 0.8 to 1.0
+            shader.setVec3("pointLights[" + std::to_string(i) + "].diffuse", 1.0f, 1.0f, 1.0f);
             shader.setVec3("pointLights[" + std::to_string(i) + "].specular", 1.0f, 1.0f, 1.0f);
         }
 
-        shader.setVec3("dirLight.ambient", 0.3f, 0.3f, 0.3f); // from 0.2 to 0.3
+        shader.setVec3("dirLight.ambient", 0.3f, 0.3f, 0.3f);
         for (int i = 0; i < 4; i++)
         {
-            shader.setVec3("pointLights[" + std::to_string(i) + "].ambient", 0.3f, 0.3f, 0.3f); // from 0.2 to 0.3
+            shader.setVec3("pointLights[" + std::to_string(i) + "].ambient", 0.3f, 0.3f, 0.3f);
         }
 
         for (int i = 0; i < 4; i++)
         {
             shader.setFloat("pointLights[" + std::to_string(i) + "].constant", 1.0f);
-            shader.setFloat("pointLights[" + std::to_string(i) + "].linear", 0.007f);     // from 0.09f to 0.07f (less decay)
-            shader.setFloat("pointLights[" + std::to_string(i) + "].quadratic", 0.0017f); // from 0.032f to 0.017f (less decay)
+            shader.setFloat("pointLights[" + std::to_string(i) + "].linear", 0.007f);
+            shader.setFloat("pointLights[" + std::to_string(i) + "].quadratic", 0.0017f);
         }
 
         shader.setVec3("pointLights[0].position", pointLightPositions[0]);
         shader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        // point light 3
         shader.setVec3("pointLights[2].position", pointLightPositions[2]);
         shader.setVec3("pointLights[3].position", pointLightPositions[3]);
         shader.setMat4("view", view);
-        shader.setMat4("projection", projection);
         shader.setMat4("model", model);
         shader.setVec3("viewPos", camera.Position);
 
         // High-res FBO
         glBindFramebuffer(GL_FRAMEBUFFER, fboHigh.fbo);
-        glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+        glViewport(0, 0, innerWidth, innerHeight);
+        shader.setMat4("projection", innerProjection);
         renderScene(shader, conference);
 
         // Medium-res FBO
         glBindFramebuffer(GL_FRAMEBUFFER, fboMedium.fbo);
-        glViewport(0, 0, SCR_WIDTH / 2, SCR_HEIGHT / 2);
+        glViewport(0, 0, mediumWidth, mediumHeight);
+        shader.setMat4("projection", mediumProjection);
         renderScene(shader, conference);
 
         // Low-res FBO
         glBindFramebuffer(GL_FRAMEBUFFER, fboLow.fbo);
         glViewport(0, 0, SCR_WIDTH / 4, SCR_HEIGHT / 4);
+        shader.setMat4("projection", projection);
         renderScene(shader, conference);
 
         glDisable(GL_DEPTH_TEST);
-
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT);
 
@@ -309,9 +289,10 @@ int main()
         screenShader.use();
         glBindVertexArray(quadVAO);
 
-        screenShader.setVec2("gaze", glm::vec2(posX * 2 - 1, posY * 2 - 1));
+        screenShader.setVec2("gaze", posX, posY);
         screenShader.setBool("showShading", showShading);
         screenShader.setVec2("predicted", predicted);
+        screenShader.setFloat("innerR", innerRadius);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, fboHigh.texture);
@@ -328,7 +309,7 @@ int main()
 
         while ((err = glGetError()) != GL_NO_ERROR)
         {
-            std::cout << "After process" << err << std::endl;
+            std::cout << "After draw" << err << std::endl;
         }
 
         glfwSwapBuffers(window);
@@ -502,4 +483,41 @@ std::pair<float, float> pixelsToDegreesFromNormalized(float norm_x, float norm_y
     float deg_y = std::atan(dy_mm / DIST_MM) * (180.0f / static_cast<float>(3.1415));
 
     return {deg_x, deg_y};
+}
+
+glm::mat4 perspectiveOffCenter(float left, float right, float bottom, float top, float near, float far)
+{
+    glm::mat4 proj(0.0f);
+    proj[0][0] = 2.0f * near / (right - left);
+    proj[1][1] = 2.0f * near / (top - bottom);
+    proj[2][0] = (right + left) / (right - left);
+    proj[2][1] = (top + bottom) / (top - bottom);
+    proj[2][2] = -(far + near) / (far - near);
+    proj[2][3] = -1.0f;
+    proj[3][2] = -(2.0f * far * near) / (far - near);
+    return proj;
+}
+
+glm::mat4 getProjection(float radius, float multi)
+{
+    float fovy = glm::radians(camera.Zoom);
+    float tanHalfFovy = tan(fovy / 2.0f);
+
+    float scale = 2.0f * radius;
+
+    float top = near * tanHalfFovy * scale;
+    float bottom = -top;
+    float right = top * ASPECT_RATIO;
+    float left = -right;
+
+    float offsetX = posX - 0.5f;
+    float offsetY = posY - 0.5f;
+
+    float shiftX = multi * offsetX * ASPECT_RATIO * tanHalfFovy * scale;
+    float shiftY = multi * offsetY * tanHalfFovy * scale;
+
+    return perspectiveOffCenter(
+        left + shiftX * near, right + shiftX * near,
+        bottom + shiftY * near, top + shiftY * near,
+        near, far);
 }
