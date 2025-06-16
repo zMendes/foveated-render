@@ -152,7 +152,6 @@ int main()
     setupShadingRatePalette();
     createFoveationTexture(0.5, 0.5);
 
-    Shader ("geometry.vs", "geometry.fs");
     Shader shader("vrs.vs", "vrs.fs");
     Shader screenShader("screen.vs", "screen.fs");
     shader.use();
@@ -167,7 +166,7 @@ int main()
     }
 
     // QUAD VAO
-    float quadVertices[] = {// vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+    float quadVertices[] = {
                             // positions   // texCoords
                             -1.0f, 1.0f, 0.0f, 1.0f,
                             -1.0f, -1.0f, 0.0f, 0.0f,
@@ -205,20 +204,13 @@ int main()
     unsigned int rbo;
     glGenRenderbuffers(1, &rbo);
     glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);           // use a single renderbuffer object for both a depth AND stencil buffer.
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo); // now actually attach it
-    // now that we actually created the framebuffer and added all attachments we want to check if it is actually complete now
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-    glm::vec3 pointLightPositions[] = {
-        glm::vec3(0.7f, 2.2f, 2.0f),
-        glm::vec3(22.3f, 3.3f, -4.0f),
-        glm::vec3(-14.0f, 6.0f, -12.0f),
-        glm::vec3(10.0f, 50.0f, -3.0f)};
 
     while (!glfwWindowShouldClose(window))
     {
@@ -262,43 +254,9 @@ int main()
         shader.setMat4("projection", projection);
         // directional light
         shader.setVec3("dirLight.direction", -0.2f, 10.0f, -0.3f);
-        shader.setVec3("dirLight.ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
+        shader.setVec3("dirLight.ambient", 0.4f, 0.4f, 0.4f);
+        shader.setVec3("dirLight.diffuse", 0.6f, 0.6f, 0.6f);
         shader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
-
-        // point light 1
-        shader.setVec3("pointLights[0].position", pointLightPositions[0]);
-        shader.setVec3("pointLights[0].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[0].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[0].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[0].constant", 1.0f);
-        shader.setFloat("pointLights[0].linear", 0.09f);
-        shader.setFloat("pointLights[0].quadratic", 0.032f);
-        // point light 2
-        shader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        shader.setVec3("pointLights[1].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[1].constant", 1.0f);
-        shader.setFloat("pointLights[1].linear", 0.09f);
-        shader.setFloat("pointLights[1].quadratic", 0.032f);
-        // point light 3
-        shader.setVec3("pointLights[2].position", pointLightPositions[2]);
-        shader.setVec3("pointLights[2].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[2].constant", 1.0f);
-        shader.setFloat("pointLights[2].linear", 0.09f);
-        shader.setFloat("pointLights[2].quadratic", 0.032f);
-        // point light 4
-        shader.setVec3("pointLights[3].position", pointLightPositions[3]);
-        shader.setVec3("pointLights[3].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[3].constant", 1.0f);
-        shader.setFloat("pointLights[3].linear", 0.09f);
-        shader.setFloat("pointLights[3].quadratic", 0.032f);
-
         shader.setBool("showShading", showShading);
 
         // SPONZA
