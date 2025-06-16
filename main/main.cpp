@@ -45,6 +45,7 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id, GLenum 
 void renderCube();
 void createTexture(GLuint &glid);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
+glm::vec2 getJitterOffset(int frame);
 
 // settings
 const unsigned int SCR_WIDTH = 1600;
@@ -214,11 +215,47 @@ int main()
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
+    // QUAD FBO
+    unsigned int quadFbo;
+    glGenFramebuffers(1, &quadFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, quadFbo);
+
+    unsigned int quadTexture;
+    glGenTextures(1, &quadTexture);
+    glBindTexture(GL_TEXTURE_2D, quadTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           quadTexture, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // HIST TEXTURE
+    unsigned int histFbo;
+    glGenFramebuffers(1, &histFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, histFbo);
+
+    unsigned int histTexture;
+    glGenTextures(1, &histTexture);
+    glBindTexture(GL_TEXTURE_2D, histTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           histTexture, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
     glm::vec3 pointLightPositions[] = {
         glm::vec3(0.7f, 2.2f, 2.0f),
         glm::vec3(22.3f, 3.3f, -4.0f),
         glm::vec3(-14.0f, 6.0f, -12.0f),
         glm::vec3(10.0f, 50.0f, -3.0f)};
+
+    int frameCount = 0;
 
     while (!glfwWindowShouldClose(window))
     {
@@ -235,6 +272,20 @@ int main()
         glm::mat4 view = camera.GetViewMatrix();
         // projection matrix
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
+        glm::mat4 jitteredProj = projection;
+
+        glm::vec2 jitter = getJitterOffset(frameCount % 16); // in [~ -0.5, 0.5]
+
+        // scale jitter to pixel fraction (e.g., 1 pixel in normalized coords)
+        float jitterScaleX = 1.0f / SCR_WIDTH;
+        float jitterScaleY = 1.0f / SCR_HEIGHT;
+        glm::vec2 jitterNDC = glm::vec2((jitter.x - 0.5) * jitterScaleX, (jitter.y - 0.5) * jitterScaleY);
+
+        std::cout << "Jitter " << jitterNDC.x << " - " << jitterNDC.y << std::endl;
+
+        // apply jitter
+        jitteredProj[2][0] += jitterNDC.x;
+        jitteredProj[2][1] += jitterNDC.y;
 
         // SPONZA
         glm::mat4 model = glm::mat4(1.0f);
@@ -259,45 +310,12 @@ int main()
         // view matrix
         shader.setMat4("view", view);
         shader.setVec3("viewPos", camera.Position);
-        shader.setMat4("projection", projection);
+        shader.setMat4("projection", jitteredProj);
         // directional light
         shader.setVec3("dirLight.direction", -0.2f, 10.0f, -0.3f);
-        shader.setVec3("dirLight.ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
+        shader.setVec3("dirLight.ambient", 0.4f, 0.4f, 0.4f);
+        shader.setVec3("dirLight.diffuse", 0.6f, 0.6f, 0.6f);
         shader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
-
-        // point light 1
-        shader.setVec3("pointLights[0].position", pointLightPositions[0]);
-        shader.setVec3("pointLights[0].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[0].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[0].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[0].constant", 1.0f);
-        shader.setFloat("pointLights[0].linear", 0.09f);
-        shader.setFloat("pointLights[0].quadratic", 0.032f);
-        // point light 2
-        shader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        shader.setVec3("pointLights[1].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[1].constant", 1.0f);
-        shader.setFloat("pointLights[1].linear", 0.09f);
-        shader.setFloat("pointLights[1].quadratic", 0.032f);
-        // point light 3
-        shader.setVec3("pointLights[2].position", pointLightPositions[2]);
-        shader.setVec3("pointLights[2].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[2].constant", 1.0f);
-        shader.setFloat("pointLights[2].linear", 0.09f);
-        shader.setFloat("pointLights[2].quadratic", 0.032f);
-        // point light 4
-        shader.setVec3("pointLights[3].position", pointLightPositions[3]);
-        shader.setVec3("pointLights[3].ambient", 0.2f, 0.2f, 0.2f);
-        shader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
-        shader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
-        shader.setFloat("pointLights[3].constant", 1.0f);
-        shader.setFloat("pointLights[3].linear", 0.09f);
-        shader.setFloat("pointLights[3].quadratic", 0.032f);
 
         shader.setBool("showShading", showShading);
 
@@ -306,15 +324,37 @@ int main()
         sponza.Draw(shader);
 
         // ON SCREEN FRAMEBUFFER
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, quadFbo);
         glDisable(GL_DEPTH_TEST);
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         screenShader.use();
         glBindVertexArray(quadVAO);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, histTexture);
+        screenShader.setInt("screenTexture", 0);
+        screenShader.setInt("previousFrame", 1);
+        screenShader.setFloat("blendFactor", 0.2);
         glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        // 2. Blit result to screen (default framebuffer)
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, quadFbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // screen
+        glBlitFramebuffer(0, 0, SCR_WIDTH, SCR_HEIGHT,
+                          0, 0, SCR_WIDTH, SCR_HEIGHT,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+        // 3. Also blit to histTexture (for reuse in next frame)
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, histFbo); // now update history
+        glBlitFramebuffer(0, 0, SCR_WIDTH, SCR_HEIGHT,
+                          0, 0, SCR_WIDTH, SCR_HEIGHT,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); // Back to default
 
         glDisable(GL_DEPTH_TEST);
         ImGui::Begin("Options");
@@ -325,6 +365,7 @@ int main()
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+        frameCount++;
     }
 
     ImGui_ImplOpenGL3_Shutdown();
@@ -546,4 +587,20 @@ void createTexture(GLuint &glid)
         glDeleteTextures(1, &glid);
     }
     glGenTextures(1, &glid);
+}
+
+glm::vec2 getJitterOffset(int frame)
+{
+    auto halton = [](int index, int base)
+    {
+        float f = 1.0f, r = 0.0f;
+        while (index > 0)
+        {
+            f = f / base;
+            r = r + f * (index % base);
+            index = index / base;
+        }
+        return r;
+    };
+    return glm::vec2(halton(frame % 1024, 2), halton(frame % 1024, 3));
 }
