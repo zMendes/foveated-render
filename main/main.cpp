@@ -4,7 +4,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <onnxruntime/onnxruntime_cxx_api.h>
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -15,6 +14,11 @@
 #include "stb_image.h"
 #include "model.h"
 #include "constants.h"
+#include "shadingrate.h"
+#include "gaze_data.h"
+#include "foveation.h"
+#include "utils.h"
+#include "gaze_predictor.h"
 
 #include <iostream>
 #include <algorithm>
@@ -25,50 +29,14 @@
 #include <chrono>
 #include <numeric>
 
-typedef void(APIENTRYP PFNGLBINDSHADINGRATEIMAGENVPROC)(GLuint texture);
-PFNGLBINDSHADINGRATEIMAGENVPROC glBindShadingRateImageNV = nullptr;
-
-typedef void(APIENTRYP PFNGLSHADINGRATEIMAGEPALETTENVPROC)(GLuint viewport, GLuint first, GLsizei count, const GLenum *rates);
-PFNGLSHADINGRATEIMAGEPALETTENVPROC glShadingRateImagePaletteNV = nullptr;
-
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void processInput(GLFWwindow *window);
 void mouse_callback(GLFWwindow *window, double xpos, double ypos);
 void scroll_callback(GLFWwindow *window, double xoffset, double yoffset);
-float createFoveationTexture(glm::vec2 point, float error, float deltaError);
-void uploadFoveationDataToTexture(GLuint texture);
-void setupShadingRatePalette();
 void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id, GLenum severity, GLsizei length, const char *message, const void *userParam);
-void renderCube();
-void createTexture(GLuint &glid);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void renderScene(Shader &shader, Model model);
-float angleToNormRadius(float deg, float diagInInches, float distMM, int scrWidth, int scrHeight);
-glm::vec2 gazeAngleToNorm(float predicted_x_deg, float predicted_y_deg);
-std::pair<float, float> pixelsToDegreesFromNormalized(float norm_x, float norm_y);
-float computeCircleIoU(glm::vec2 center1, float r1, glm::vec2 center2, float r2);
-float computeCircleCoverage(glm::vec2 center1, float r1, glm::vec2 center2, float r2);
 
-typedef struct
-{
-    double timestamp;
-    float x;
-    float y;
-} Gaze;
-
-void loadGazeSequence(std::string path, std::vector<Gaze> &gazeSeq);
-
-// settings
-const unsigned int SCR_WIDTH = 1600;
-const unsigned int SCR_HEIGHT = 900;
-
-// VRS stuff
-GLuint fov_texture;
-std::vector<uint8_t> m_shadingRateImageData;
-uint32_t m_shadingRateImageWidth = 0;
-uint32_t m_shadingRateImageHeight = 0;
-GLint m_shadingRateImageTexelWidth;
-GLint m_shadingRateImageTexelHeight;
 float posX = 0.5;
 float posY = 0.5;
 bool isCursorEnabled = false;
@@ -89,9 +57,6 @@ float diagonal_in_inches = 17.0f;
 
 float diag_px = std::sqrt(SCR_WIDTH * SCR_WIDTH + SCR_HEIGHT * SCR_HEIGHT);
 float diag_mm = diagonal_in_inches * 25.4f;
-float SCR_WIDTH_MM = diag_mm * (SCR_WIDTH / diag_px);
-float SCR_HEIGHT_MM = diag_mm * (SCR_HEIGHT / diag_px);
-float DIST_MM = 600.0f;
 float ASPECT_RATIO = (float)SCR_WIDTH / (float)SCR_HEIGHT;
 float near = 0.1f;
 float far = 10000.0f;
@@ -113,17 +78,8 @@ int main()
 
     loadGazeSequence("gazeseq.txt", gazeSeq);
 
-    // CONFIG MODEL
-    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "saccade_predictor");
-    Ort::SessionOptions session_options;
-    session_options.SetIntraOpNumThreads(1);
-    Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+   GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
 
-    const char *model_path = "/home/loe/Downloads/saccade_predictor.onnx";
-    Ort::Session session(env, model_path, session_options);
-    std::array<int64_t, 3> input_shape = {1, 10, 2};
-    const char *input_names[] = {"input"};
-    const char *output_names[] = {"output"};
 
     std::vector<float> iouVector;
     std::vector<float> circleVector;
@@ -152,37 +108,19 @@ int main()
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
 
-    // IMGUI
-    ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 460 core");
-
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         std::cout << "Failed to initialize GLAD" << std::endl;
         return -1; // Correct return here, exiting if GLAD fails
     }
 
-    glBindShadingRateImageNV = (PFNGLBINDSHADINGRATEIMAGENVPROC)glfwGetProcAddress("glBindShadingRateImageNV");
-    glShadingRateImagePaletteNV = (PFNGLSHADINGRATEIMAGEPALETTENVPROC)glfwGetProcAddress("glShadingRateImagePaletteNV");
-
+    initializeFoveation();
     using clock = std::chrono::high_resolution_clock;
     using ms = std::chrono::milliseconds;
 
     // OPENGL STATE
     glEnable(GL_DEPTH_TEST);
-    //glEnable(NVShadingRate::IMAGE);
-
-    glGetIntegerv(NVShadingRate::TEXEL_HEIGHT, &m_shadingRateImageTexelHeight);
-    glGetIntegerv(NVShadingRate::TEXEL_WIDTH, &m_shadingRateImageTexelWidth);
-
-    m_shadingRateImageWidth = (SCR_WIDTH + m_shadingRateImageTexelWidth - 1) / m_shadingRateImageTexelWidth;
-    m_shadingRateImageHeight = (SCR_HEIGHT + m_shadingRateImageTexelHeight - 1) / m_shadingRateImageTexelHeight;
-    m_shadingRateImageData.resize(m_shadingRateImageWidth * m_shadingRateImageHeight);
-
-    createTexture(fov_texture);
-    setupShadingRatePalette();
-    createFoveationTexture(glm::vec2(0.5, 0.5), 0.0, 0.0);
+    glEnable(NVShadingRate::IMAGE);
 
     Shader shader("vrs.vs", "vrs.fs");
     Shader screenShader("screen.vs", "screen.fs");
@@ -255,13 +193,13 @@ int main()
     int totalFrameCount = 0;
     float avgpredError = 0.0f;
 
-    // GLuint queryFragment;
-    // glGenQueries(1, &queryFragment);
+    GLuint queryFragment;
+    glGenQueries(1, &queryFragment);
     //  glBeginQuery(GL_FRAGMENT_SHADER_INVOCATIONS_ARB, queryFragment);
     float averageInvocation = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
-        if (count >= (int) gazeSeq.size())
+        if (count >= (int)gazeSeq.size())
             break;
 
         isNewGaze = false;
@@ -283,7 +221,6 @@ int main()
             isNewGaze = true;
         }
 
-        // ========== TIME PROCESSING AND INFERENCE ==========
         if (gaze_history.size() > 10)
             gaze_history.pop_front();
 
@@ -300,27 +237,15 @@ int main()
             float deltaError = raw_error - pastError;
 
             std::vector<float> input_tensor_values;
-            for (const auto &pt : gaze_history)
-            {
-                input_tensor_values.push_back(pt[0]);
-                input_tensor_values.push_back(pt[1]);
-            }
+            std::pair<float, float> predicted_deg = predictor.predict(gaze_history);
 
-            Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, input_tensor_values.data(), input_tensor_values.size(), input_shape.data(), input_shape.size());
-
-            auto output_tensors = session.Run(Ort::RunOptions{nullptr},
-                                              input_names, &input_tensor, 1,
-                                              output_names, 1);
-
-            float *output = output_tensors.front().GetTensorMutableData<float>();
-            predicted_deg = {output[0], output[1]};
             predicted = gazeAngleToNorm(predicted_deg.first, predicted_deg.second);
             float normRawE = angleToNormRadius(raw_error, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
             float normDeltaE = angleToNormRadius(deltaError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
             // std::cout << "E_i" << raw_error << " DeltaError " << deltaError << std::endl;
-            lastRadius = createFoveationTexture(predicted, normRawE, normDeltaE);
-            //lastRadius = createFoveationTexture(predicted, 0.0, 0.0);
-            lastRadius = createFoveationTexture(predicted, angleToNormRadius(2.58, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT), 0.0);
+            lastRadius = updateFoveationTexture(predicted, normRawE, normDeltaE);
+            // lastRadius = updateFoveationTexture(predicted, 0.0, 0.0);
+            lastRadius = updateFoveationTexture(predicted, angleToNormRadius(2.58, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT), 0.0);
 
             pastError = raw_error;
         }
@@ -333,36 +258,28 @@ int main()
 
         shader.use();
         glEnable(NVShadingRate::IMAGE);
-        createTexture(fov_texture);
-        uploadFoveationDataToTexture(fov_texture);
-        glBindShadingRateImageNV(fov_texture);
+        bindFoveationTexture();
 
         shader.setMat4("view", view);
-        shader.setMat4("projection", projection);
         shader.setMat4("model", model);
         shader.setVec3("viewPos", camera.Position);
+        shader.setMat4("projection", projection);
         // directional light
         shader.setVec3("dirLight.direction", -0.2f, -10.0f, -0.3f);
         shader.setVec3("dirLight.ambient", 0.4f, 0.4f, 0.4f);
         shader.setVec3("dirLight.diffuse", 0.5f, 0.5f, 0.5f);
         shader.setVec3("dirLight.specular", 0.7f, 0.7f, 0.7f);
-        shader.setMat4("view", view);
-        shader.setMat4("model", model);
-        shader.setVec3("viewPos", camera.Position);
+        shader.setBool("showShading", showShading);
 
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
-        shader.setBool("showShading", showShading);
-        GLuint queryFragment;
-        glGenQueries(1, &queryFragment);
         glBeginQuery(GL_FRAGMENT_SHADER_INVOCATIONS_ARB, queryFragment);
         renderScene(shader, sponza);
         glEndQuery(GL_FRAGMENT_SHADER_INVOCATIONS_ARB);
 
         GLuint fragmentsGenerated;
         glGetQueryObjectuiv(queryFragment, GL_QUERY_RESULT, &fragmentsGenerated);
-        //std::cout << "Fragment invocations this frame: " << fragmentsGenerated << std::endl;
-        averageInvocation+= fragmentsGenerated;
+        averageInvocation += fragmentsGenerated;
         glDisable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -392,7 +309,7 @@ int main()
 
     float mean = std::reduce(iouVector.begin(), iouVector.end()) / iouVector.size();
     float meanCircle = std::reduce(circleVector.begin(), circleVector.end()) / circleVector.size();
-    std::cout << "Avg frags: " << averageInvocation/totalFrameCount <<std::endl;
+    std::cout << "Avg frags: " << averageInvocation / totalFrameCount << std::endl;
     std::cout << "Average IOU: " << mean << std::endl;
     std::cout << "Average Coverage: " << meanCircle << std::endl;
     std::cout << "Average pred error: " << avgpredError / gazeSeq.size();
@@ -483,216 +400,4 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
 void scroll_callback(GLFWwindow *window, double xoffest, double yoffset)
 {
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
-}
-
-float createFoveationTexture(glm::vec2 point, float error, float deltaError)
-{
-    float centerX = point[0];
-    float centerY = point[1];
-    const int width = m_shadingRateImageWidth;
-    const int height = m_shadingRateImageHeight;
-
-    float dynamicError = ALPHA * error + BETA * deltaError;
-
-    float innerR = INNER_R + dynamicError;
-    float middleR = MIDDLE_R + dynamicError;
-
-    for (int y = 0; y < height; ++y)
-    {
-        for (int x = 0; x < width; ++x)
-        {
-            float fx = x / (float)width;
-            float fy = y / (float)height;
-
-            float d = std::sqrt((fx - centerX) * (fx - centerX) + (fy - centerY) * (fy - centerY));
-            if (d < (innerR))
-            {
-                m_shadingRateImageData[x + y * width] = 1;
-            }
-            else if (d < (middleR))
-            {
-                m_shadingRateImageData[x + y * width] = 2;
-            }
-            else
-            {
-                m_shadingRateImageData[x + y * width] = 3;
-            }
-        }
-    }
-    return innerR;
-}
-
-void uploadFoveationDataToTexture(GLuint texture)
-{
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, m_shadingRateImageWidth, m_shadingRateImageHeight);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_shadingRateImageWidth, m_shadingRateImageHeight, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &m_shadingRateImageData[0]);
-}
-void setupShadingRatePalette()
-{
-    GLint palSize;
-    glGetIntegerv(NVShadingRate::PALETTE_SIZE, &palSize);
-    assert(palSize >= 4);
-
-    GLenum *palette = new GLenum[palSize];
-
-    palette[0] = NVShadingRate::NO_INVOCATIONS;
-    palette[1] = NVShadingRate::ONE_INVOCATION_PER_PIXEL;
-    palette[2] = NVShadingRate::ONE_INVOCATION_PER_2X2;
-    palette[3] = NVShadingRate::ONE_INVOCATION_PER_4X4;
-
-    for (int i = 4; i < palSize; ++i)
-    {
-        palette[i] = NVShadingRate::ONE_INVOCATION_PER_PIXEL;
-    }
-
-    glShadingRateImagePaletteNV(0, 0, palSize, palette);
-    delete[] palette;
-}
-
-void createTexture(GLuint &glid)
-{
-    if (glid)
-    {
-        glDeleteTextures(1, &glid);
-    }
-    glGenTextures(1, &glid);
-}
-
-void loadGazeSequence(std::string path, std::vector<Gaze> &gazeSeq)
-{
-    std::ifstream file(path);
-    std::string line;
-    while (std::getline(file, line))
-    {
-        std::stringstream ss(line);
-        double t;
-        float x, y;
-        char comma;
-        ss >> t >> comma >> x >> comma >> y;
-        gazeSeq.push_back({t, x, y});
-    }
-};
-
-float angleToNormRadius(float deg, float diagInInches, float distMM, int scrWidth, int scrHeight)
-{
-    float diagPx = std::sqrt(scrWidth * scrWidth + scrHeight * scrHeight);
-    float diagMM = diagInInches * 25.4f;
-    float pixelSizeMM = diagMM / diagPx;
-
-    float rad = glm::radians(deg);
-    float sizeMM = 2.0f * distMM * std::tan(rad / 2.0f);
-    float sizePx = sizeMM / pixelSizeMM;
-
-    float screenSizePx = std::min(scrWidth, scrHeight);
-    return (sizePx / screenSizePx) / 2.0f; // radius
-}
-
-float deg2rad(float deg)
-{
-    return deg * 3.1415 / 180.0f;
-}
-
-glm::vec2 gazeAngleToNorm(float predicted_x_deg, float predicted_y_deg)
-{
-
-    float x_rad = deg2rad(predicted_x_deg);
-    float y_rad = deg2rad(predicted_y_deg);
-
-    float x_mm = std::tan(x_rad) * DIST_MM;
-    float y_mm = std::tan(y_rad) * DIST_MM;
-
-    float px_x = (x_mm / SCR_WIDTH_MM) * SCR_WIDTH + SCR_WIDTH / 2.0f;
-    float px_y = (y_mm / SCR_HEIGHT_MM) * SCR_HEIGHT + SCR_HEIGHT / 2.0f;
-
-    float norm_x = px_x / SCR_WIDTH;
-    float norm_y = px_y / SCR_HEIGHT;
-
-    return glm::vec2(norm_x, norm_y);
-}
-std::pair<float, float> pixelsToDegreesFromNormalized(float norm_x, float norm_y)
-{
-    float px_x = norm_x * SCR_WIDTH / 2.0;
-    float px_y = norm_y * SCR_HEIGHT / 2.0;
-
-    float px_per_mm_x = SCR_WIDTH / SCR_WIDTH_MM;
-    float px_per_mm_y = SCR_HEIGHT / SCR_HEIGHT_MM;
-
-    float dx_mm = (px_x) / px_per_mm_x;
-    float dy_mm = (px_y) / px_per_mm_y;
-
-    float deg_x = std::atan2(dx_mm, DIST_MM) * (180.0f / static_cast<float>(3.1415));
-    float deg_y = std::atan2(dy_mm, DIST_MM) * (180.0f / static_cast<float>(3.1415));
-
-    return {deg_x, deg_y};
-}
-
-float computeCircleIoU(glm::vec2 center1, float r1, glm::vec2 center2, float r2)
-{
-    float d = glm::distance(center1, center2);
-
-    // No overlap
-    if (d >= r1 + r2)
-        return 0.0f;
-
-    // One circle completely inside the other
-    if (d <= std::abs(r1 - r2))
-    {
-        float min_r = std::min(r1, r2);
-        float max_r = std::max(r1, r2);
-        return (min_r * min_r) / (max_r * max_r);
-    }
-
-    float r1_sq = r1 * r1;
-    float r2_sq = r2 * r2;
-
-    float alpha = std::acos((r1_sq + d * d - r2_sq) / (2.0f * r1 * d));
-    float beta = std::acos((r2_sq + d * d - r1_sq) / (2.0f * r2 * d));
-
-    float intersection_area =
-        r1_sq * alpha + r2_sq * beta -
-        0.5f * std::sqrt(
-                   (-d + r1 + r2) *
-                   (d + r1 - r2) *
-                   (d - r1 + r2) *
-                   (d + r1 + r2));
-
-    float union_area = M_PI * (r1_sq + r2_sq) - intersection_area;
-
-    return intersection_area / union_area;
-}
-
-float computeCircleCoverage(glm::vec2 center1, float r1, glm::vec2 center2, float r2)
-{
-    float d = glm::distance(center1, center2);
-
-    // No overlap
-    if (d >= r1 + r2)
-        return 0.0f;
-
-    // Circle 1 fully inside Circle 2
-    if (d <= std::abs(r2 - r1) && r2 > r1)
-        return 1.0f;
-
-    // Circle 2 fully inside Circle 1
-    if (d <= std::abs(r2 - r1) && r1 > r2)
-        return (M_PI * r2 * r2) / (M_PI * r1 * r1);
-
-    float r1_sq = r1 * r1;
-    float r2_sq = r2 * r2;
-
-    float alpha = std::acos((r1_sq + d * d - r2_sq) / (2.0f * r1 * d));
-    float beta = std::acos((r2_sq + d * d - r1_sq) / (2.0f * r2 * d));
-
-    float intersection_area =
-        r1_sq * alpha + r2_sq * beta -
-        0.5f * std::sqrt(
-                   (-d + r1 + r2) *
-                   (d + r1 - r2) *
-                   (d - r1 + r2) *
-                   (d + r1 + r2));
-
-    float circle1_area = M_PI * r1_sq;
-
-    return intersection_area / circle1_area;
 }
