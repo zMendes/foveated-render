@@ -39,16 +39,16 @@ void main() {
         int maxCoarse = max(gl_FragmentSizeNV.x, gl_FragmentSizeNV.y);
 
         if (maxCoarse == 1) {
-            FragColor = vec4(1,0,0,1);
+            FragColor = mix(FragColor, vec4(1,0,0,1), 0.2);
         }
         else if (maxCoarse == 2) {
-            FragColor = vec4(1,1,0,1);
+            FragColor= mix(FragColor,vec4(1,1,0,1), 0.2);
         }
         else if (maxCoarse == 4) {
-            FragColor = vec4(0,1,0,1);
+            FragColor= mix(FragColor,vec4(0,1,0,1), 0.2);
         }
         else {
-            FragColor = vec4(1,1,1,1);
+            FragColor= mix(FragColor,vec4(1,1,1,1), 0.2);
         }
     }
 }

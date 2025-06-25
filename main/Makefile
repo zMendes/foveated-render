@@ -9,7 +9,7 @@ SRCS = main.cpp ../glad.c ../stb_image.cpp
 OUT = my_program
 
 # Libraries
-LIBS = -lglfw -lassimp -limgui
+LIBS = -lglfw -lassimp -limgui -lonnxruntime -lmpi
 
 # Rules
 all: $(OUT)
