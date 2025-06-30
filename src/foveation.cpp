@@ -20,13 +20,6 @@ static uint32_t shadingRateImageHeight = 0;
 static GLint shadingRateImageTexelWidth = 0;
 static GLint shadingRateImageTexelHeight = 0;
 
-// Constants for foveation radii and parameters (could also be configurable)
-static const float INNER_RADIUS = 0.03f; // example normalized value
-static const float MIDDLE_RADIUS = 0.06f;
-
-static const float ALPHA = 1.0f; // weight for error
-static const float BETA = 0.0f;  // weight for delta error
-
 void loadNVShadingRateImageFunctions()
 {
     glBindShadingRateImageNV = (PFNGLBINDSHADINGRATEIMAGENVPROC)glfwGetProcAddress("glBindShadingRateImageNV");
@@ -75,7 +68,7 @@ void initializeFoveation()
     setupShadingRatePalette();
 }
 
-float updateFoveationTexture(const glm::vec2 &point, float error, float deltaError)
+float updateFoveationTexture(float INNER_R, float MIDDLE_R, const glm::vec2 &point, float error, float deltaError)
 {
 
     float centerX = point.x;
@@ -83,8 +76,8 @@ float updateFoveationTexture(const glm::vec2 &point, float error, float deltaErr
 
     float dynamicError = ALPHA * error + BETA * deltaError;
 
-    float innerR = INNER_RADIUS + dynamicError;
-    float middleR = MIDDLE_RADIUS + dynamicError;
+    float innerR = INNER_R + dynamicError;
+    float middleR = MIDDLE_R + dynamicError;
 
     for (uint32_t y = 0; y < shadingRateImageHeight; ++y)
     {

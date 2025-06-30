@@ -32,7 +32,7 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id, GLenum 
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void renderScene(Shader &shader, Model model);
 void checkGLError(std::string);
-
+std::pair<float, float> computeError(std::pair<float, float> predicted_deg, std::array<float, 2> current, float pastError);
 float posX = 0.5;
 float posY = 0.5;
 bool isCursorEnabled = false;
@@ -51,17 +51,6 @@ unsigned int quadVAO;
 unsigned int fbo;
 unsigned int texture;
 
-// settings
-float diagonal_in_inches = 17.0f;
-float diag_px = std::sqrt(SCR_WIDTH * SCR_WIDTH + SCR_HEIGHT * SCR_HEIGHT);
-float diag_mm = diagonal_in_inches * 25.4f;
-float ASPECT_RATIO = (float)SCR_WIDTH / (float)SCR_HEIGHT;
-float near = 0.1f;
-float far = 10000.0f;
-float INNER_R_DEG = 5.0f;
-float MIDDLE_R_DEG = 10.0f;
-float INNER_R = angleToNormRadius(INNER_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-float MIDDLE_R = angleToNormRadius(MIDDLE_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
 
 //GAZE STUFF
 std::vector<Gaze> gazeSeq;
@@ -69,19 +58,14 @@ std::deque<std::array<float, 2>> gaze_history;
 glm::vec2 predicted;
 std::pair<float, float> predicted_deg;
 
-const float ALPHA = 1.0f;
-const float BETA = 0.0f;
-
 int main()
 {
-    // read gaze seq
-
+    //Defining normalize radius for foveated rendering
+    float INNER_R = angleToNormRadius(INNER_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
+    float MIDDLE_R = angleToNormRadius(MIDDLE_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
     loadGazeSequence("../data/gazeseq.txt", gazeSeq);
+    GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
 
-   GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
-
-
-    std::vector<float> iouVector;
     std::vector<float> circleVector;
 
     GLFWwindow *window = initGLFW();
@@ -118,6 +102,7 @@ int main()
     const int intervalMs = 1000 / gazeHz; // ~30ms
     auto lastUpdate = clock::now();
     glm::vec2 normGaze;
+    std::pair<float, float> predicted_deg;
     bool isNewGaze = false;
     float pastError = 0.0f;
     float lastRadius = INNER_R;
@@ -157,31 +142,25 @@ int main()
 
         if (gaze_history.size() == 10 && isNewGaze)
         {
-            iouVector.push_back(computeCircleIoU(normGaze, INNER_R, predicted, lastRadius));
-            circleVector.push_back(computeCircleCoverage(normGaze, INNER_R, predicted, lastRadius));
-            auto &curr = gaze_history.back();
-
-            float dx = predicted_deg.first - curr[0];
-            float dy = predicted_deg.second - curr[1];
-            float raw_error = std::sqrt(dx * dx + dy * dy);
-            avgpredError += raw_error;
-            float deltaError = raw_error - pastError;
-
-            std::vector<float> input_tensor_values;
-            std::pair<float, float> predicted_deg = predictor.predict(gaze_history);
-
+            //compute error with last predicted gaze and new gaze data from eye tracker
+            auto [rawError, deltaError] = computeError(predicted_deg, gaze_history.back(), pastError);
+            predicted_deg = predictor.predict(gaze_history);
             predicted = gazeAngleToNorm(predicted_deg.first, predicted_deg.second);
-            float normRawE = angleToNormRadius(raw_error, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-            float normDeltaE = angleToNormRadius(deltaError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-            // std::cout << "E_i" << raw_error << " DeltaError " << deltaError << std::endl;
-            lastRadius = updateFoveationTexture(predicted, normRawE, normDeltaE);
-            // lastRadius = updateFoveationTexture(predicted, 0.0, 0.0);
-            //lastRadius = updateFoveationTexture(predicted, angleToNormRadius(2.58, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT), 0.0);
 
-            pastError = raw_error;
+            //normalize to screen space
+            float normRawE = angleToNormRadius(rawError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
+            float normDeltaE = angleToNormRadius(deltaError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
+            avgpredError+= rawError;
+
+            circleVector.push_back(computeCircleCoverage(normGaze, INNER_R, predicted, lastRadius));
+
+            lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, normRawE, normDeltaE);
+            //lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, 0.0f, 0.0f);
+            //lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, angleToNormRadius(1.57, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT), 0.0);
+            
+            pastError = rawError;
         }
 
-        // ========== RENDER PASS ==========s
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10000.0f);
         glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.f, 0.0f));
@@ -234,10 +213,8 @@ int main()
         totalFrameCount++;
     }
 
-    float mean = std::reduce(iouVector.begin(), iouVector.end()) / iouVector.size();
     float meanCircle = std::reduce(circleVector.begin(), circleVector.end()) / circleVector.size();
     std::cout << "Avg frags: " << averageInvocation / totalFrameCount << std::endl;
-    std::cout << "Average IOU: " << mean << std::endl;
     std::cout << "Average Coverage: " << meanCircle << std::endl;
     std::cout << "Average pred error: " << avgpredError / gazeSeq.size();
 
@@ -425,4 +402,15 @@ void initFramebuffers()
         std::cerr << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+std::pair<float, float> computeError(std::pair<float, float> predicted_deg, std::array<float, 2> current, float pastError) {
+
+    float dx = predicted_deg.first - current[0];
+    float dy = predicted_deg.second - current[1];
+
+    float raw_error = std::sqrt(dx * dx + dy * dy);
+    float deltaError = raw_error - pastError;
+
+    return {raw_error, deltaError};
 }

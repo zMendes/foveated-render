@@ -57,41 +57,6 @@ std::pair<float, float> pixelsToDegreesFromNormalized(float norm_x, float norm_y
     return {deg_x, deg_y};
 }
 
-float computeCircleIoU(glm::vec2 center1, float r1, glm::vec2 center2, float r2)
-{
-    float d = glm::distance(center1, center2);
-
-    // No overlap
-    if (d >= r1 + r2)
-        return 0.0f;
-
-    // One circle completely inside the other
-    if (d <= std::abs(r1 - r2))
-    {
-        float min_r = std::min(r1, r2);
-        float max_r = std::max(r1, r2);
-        return (min_r * min_r) / (max_r * max_r);
-    }
-
-    float r1_sq = r1 * r1;
-    float r2_sq = r2 * r2;
-
-    float alpha = std::acos((r1_sq + d * d - r2_sq) / (2.0f * r1 * d));
-    float beta = std::acos((r2_sq + d * d - r1_sq) / (2.0f * r2 * d));
-
-    float intersection_area =
-        r1_sq * alpha + r2_sq * beta -
-        0.5f * std::sqrt(
-                   (-d + r1 + r2) *
-                   (d + r1 - r2) *
-                   (d - r1 + r2) *
-                   (d + r1 + r2));
-
-    float union_area = M_PI * (r1_sq + r2_sq) - intersection_area;
-
-    return intersection_area / union_area;
-}
-
 float computeCircleCoverage(glm::vec2 center1, float r1, glm::vec2 center2, float r2)
 {
     float d = glm::distance(center1, center2);

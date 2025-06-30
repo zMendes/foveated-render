@@ -10,5 +10,16 @@ extern const float SCR_WIDTH_MM;
 extern const float SCR_HEIGHT_MM;
 
 extern const float DIAGONAL_IN_INCHES;
+extern const float diag_px;
+extern const float diag_mm;
 
+extern float diagonal_in_inches;
+extern float ASPECT_RATIO;
+extern float near;
+extern float far;
+extern float INNER_R_DEG;
+extern float MIDDLE_R_DEG;
+
+extern float ALPHA;
+extern float BETA;
 #endif // CONSTANTS_H
