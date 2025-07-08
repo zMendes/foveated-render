@@ -9,7 +9,7 @@ SRCS = $(wildcard src/*.cpp) external/glad.c external/stb_image.cpp
 OUT = build/my_program
 
 # Libraries
-LIBS = -lglfw -lassimp -limgui -lonnxruntime -lmpi
+LIBS = -lglfw -lassimp -limgui -lonnxruntime -lmpi -lzmq
 
 # Rules
 all: $(OUT)

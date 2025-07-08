@@ -10,10 +10,10 @@
 #include "model.h"
 #include "constants.h"
 #include "shadingrate.h"
-#include "gaze_data.h"
 #include "foveation.h"
 #include "utils.h"
 #include "gaze_predictor.h"
+#include "pupil.h"
 
 #include <vector>
 #include <deque>
@@ -32,6 +32,7 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id, GLenum 
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void renderScene(Shader &shader, Model model);
 void checkGLError(std::string);
+void updateGazeSeq();
 std::pair<float, float> computeError(std::pair<float, float> predicted_deg, std::array<float, 2> current, float pastError);
 float posX = 0.5;
 float posY = 0.5;
@@ -57,13 +58,24 @@ std::vector<Gaze> gazeSeq;
 std::deque<std::array<float, 2>> gaze_history;
 glm::vec2 predicted;
 std::pair<float, float> predicted_deg;
+std::mutex gaze_mutex;
+bool useGazeSequence = false;
 
 int main()
 {
+    std::cout << "Initializing..." << std::endl;
     //Defining normalize radius for foveated rendering
     float INNER_R = angleToNormRadius(INNER_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
     float MIDDLE_R = angleToNormRadius(MIDDLE_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-    loadGazeSequence("../data/gazeseq.txt", gazeSeq);
+
+    //Try to load Pupil
+    Pupil pupil(gaze_history, gaze_mutex);
+    if (!pupil.connect()){
+        std::cout << "Pupil eye tracker failed to connect. Loading default gaze sequence file..." << std::endl;
+        loadGazeSequence("../data/gazeseq.txt", gazeSeq);
+        useGazeSequence = true;
+    }
+    pupil.start();
     GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
 
     std::vector<float> circleVector;
@@ -115,7 +127,7 @@ int main()
     float averageInvocation = 0.0f;
     while (!glfwWindowShouldClose(window))
     {
-        if (count >= (int)gazeSeq.size())
+        if (useGazeSequence && count >= (int)gazeSeq.size())
             break;
 
         isNewGaze = false;
@@ -123,7 +135,7 @@ int main()
 
         // ========== GET GAZE POINTS ==========
         auto now = clock::now();
-        if (std::chrono::duration_cast<ms>(now - lastUpdate).count() >= intervalMs)
+        if (useGazeSequence && std::chrono::duration_cast<ms>(now - lastUpdate).count() >= intervalMs)
         {
             auto [gaze_deg_x, gaze_deg_y] = pixelsToDegreesFromNormalized(gazeSeq[count].x, gazeSeq[count].y);
 
@@ -136,14 +148,13 @@ int main()
             gaze_history.push_back({gaze_deg_x, gaze_deg_y});
             isNewGaze = true;
         }
-
-        if (gaze_history.size() > 10)
-            gaze_history.pop_front();
-
-        if (gaze_history.size() == 10 && isNewGaze)
+        //std::cout << gaze_history.size() << std::co
+        if (gaze_history.size() == 10) //&& isNewGaze)
         {
             //compute error with last predicted gaze and new gaze data from eye tracker
             auto [rawError, deltaError] = computeError(predicted_deg, gaze_history.back(), pastError);
+            std::lock_guard<std::mutex> lock(gaze_mutex);
+            std::cout << gaze_history.back()[0] << "-" << gaze_history.back()[0] << std::endl;
             predicted_deg = predictor.predict(gaze_history);
             predicted = gazeAngleToNorm(predicted_deg.first, predicted_deg.second);
 
@@ -221,6 +232,13 @@ int main()
     glfwTerminate();
     return 0;
 }
+
+//void updateGazeSeq()
+//{
+//    while (running){
+//        getGaze();
+//    }
+//}
 
 void renderScene(Shader &shader, Model model)
 {

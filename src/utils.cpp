@@ -3,6 +3,12 @@
 #include <glm/glm.hpp>
 #include <cmath>
 #include <algorithm>
+#include <utility>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+
+
 
 float angleToNormRadius(float deg, float diagInInches, float distMM, int scrWidth, int scrHeight)
 {
@@ -90,4 +96,31 @@ float computeCircleCoverage(glm::vec2 center1, float r1, glm::vec2 center2, floa
     float circle1_area = M_PI * r1_sq;
 
     return intersection_area / circle1_area;
+}
+
+bool loadGazeSequence(const std::string& path, std::vector<Gaze>& gazeSeq)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open gaze sequence file: " << path << std::endl;
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        std::stringstream ss(line);
+        double timestamp;
+        float x, y;
+        char comma1, comma2;
+        ss >> timestamp >> comma1 >> x >> comma2 >> y;
+        if (ss.fail())
+        {
+            std::cerr << "Malformed line in gaze sequence file: " << line << std::endl;
+            continue;
+        }
+        gazeSeq.push_back({timestamp, x, y});
+    }
+    return true;
 }
