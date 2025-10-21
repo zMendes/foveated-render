@@ -10,6 +10,7 @@ uniform vec2 true_gaze;
 uniform bool showShading;
 void main() {
     FragColor = texture(screenTexture, TexCoords);
+
     if (showShading) {
         if (distance(TexCoords, predicted) < 0.002)
         FragColor = vec4(1.0, 1.0, 1.0, 1.0);

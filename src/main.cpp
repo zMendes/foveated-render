@@ -13,14 +13,16 @@
 #include "foveation.h"
 #include "utils.h"
 #include "gaze_predictor.h"
-#include "pupil.h"
+#include "stb_image_write.h"
+#include "video_encoder.h"
+#include "gaze_sequence.h"
 
 #include <vector>
 #include <deque>
 #include <chrono>
 #include <numeric>
 
-GLFWwindow* initGLFW();
+GLFWwindow *initGLFW();
 bool initGLAD();
 void initQuad();
 void initFramebuffers();
@@ -52,33 +54,24 @@ unsigned int quadVAO;
 unsigned int fbo;
 unsigned int texture;
 
-
-//GAZE STUFF
+// GAZE STUFF
 std::vector<Gaze> gazeSeq;
 std::deque<std::array<float, 2>> gaze_history;
 glm::vec2 predicted;
 std::pair<float, float> predicted_deg;
-std::mutex gaze_mutex;
 bool useGazeSequence = false;
+glm::vec2 final;
 
 int main()
 {
     std::cout << "Initializing..." << std::endl;
-    //Defining normalize radius for foveated rendering
+    // Defining normalize radius for foveated rendering
     float INNER_R = angleToNormRadius(INNER_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
     float MIDDLE_R = angleToNormRadius(MIDDLE_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
 
-    //Try to load Pupil
-    Pupil pupil(gaze_history, gaze_mutex);
-    if (!pupil.connect()){
-        std::cout << "Pupil eye tracker failed to connect. Loading default gaze sequence file..." << std::endl;
-        loadGazeSequence("../data/gazeseq.txt", gazeSeq);
-        useGazeSequence = true;
-    }
-    pupil.start();
     GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
 
-    std::vector<float> circleVector;
+    GazeSequence gazeSeqq("/home/loe/foveaflex/gaze_predictor/GazeBase_v2_0/Round_1/Subject_1001/S1/S1_Random_Saccades/S_1001_S1_RAN.csv", 1000.0, 60.0);
 
     GLFWwindow *window = initGLFW();
     if (!window)
@@ -87,11 +80,8 @@ int main()
     if (!initGLAD())
         return -1;
 
-
-
     initializeFoveation();
     using clock = std::chrono::high_resolution_clock;
-    using ms = std::chrono::milliseconds;
 
     // OPENGL STATE
     glEnable(GL_DEPTH_TEST);
@@ -109,15 +99,11 @@ int main()
     initQuad();
     initFramebuffers();
 
-    int count = 0;
-    const int gazeHz = 33;                // target rate in Hz
-    const int intervalMs = 1000 / gazeHz; // ~30ms
-    auto lastUpdate = clock::now();
-    glm::vec2 normGaze;
+    auto init = clock::now();
+    double elapsed;
+
     std::pair<float, float> predicted_deg;
-    bool isNewGaze = false;
     float pastError = 0.0f;
-    float lastRadius = INNER_R;
     int totalFrameCount = 0;
     float avgpredError = 0.0f;
 
@@ -125,50 +111,43 @@ int main()
     GLuint fragmentsGenerated;
     glGenQueries(1, &queryFragment);
     float averageInvocation = 0.0f;
+
+    VideoEncoder encoder("output.mp4", SCR_WIDTH, SCR_HEIGHT, 20);
+
     while (!glfwWindowShouldClose(window))
     {
-        if (useGazeSequence && count >= (int)gazeSeq.size())
+        auto now = clock::now();
+        elapsed = std::chrono::duration<double, std::milli>(now - init).count();
+        if (elapsed > gazeSeqq.getLastTimestamp())
             break;
 
-        isNewGaze = false;
         processInput(window);
 
         // ========== GET GAZE POINTS ==========
-        auto now = clock::now();
-        if (useGazeSequence && std::chrono::duration_cast<ms>(now - lastUpdate).count() >= intervalMs)
-        {
-            auto [gaze_deg_x, gaze_deg_y] = pixelsToDegreesFromNormalized(gazeSeq[count].x, gazeSeq[count].y);
+        Gazes lastGaze = gazeSeqq.getLatestGaze(elapsed);
+        float gaze_deg_x = lastGaze.x;
+        float gaze_deg_y = lastGaze.y; // pixelsToDegreesFromNormalized(lastGaze.x, lastGaze.y);
+        final = gazeAngleToNorm(gaze_deg_x, gaze_deg_y);
 
-            normGaze = glm::vec2(
-                (gazeSeq[count].x + 1.0f) / 2.0f,
-                (gazeSeq[count].y + 1.0f) / 2.0f);
+        gaze_history.push_back({gaze_deg_x, gaze_deg_y});
+        if (gaze_history.size() > 10)
+            gaze_history.pop_front();
 
-            lastUpdate = now;
-            count++;
-            gaze_history.push_back({gaze_deg_x, gaze_deg_y});
-            isNewGaze = true;
-        }
-        //std::cout << gaze_history.size() << std::co
-        if (gaze_history.size() == 10) //&& isNewGaze)
+        if (gaze_history.size() == 10)
         {
-            //compute error with last predicted gaze and new gaze data from eye tracker
             auto [rawError, deltaError] = computeError(predicted_deg, gaze_history.back(), pastError);
-            std::lock_guard<std::mutex> lock(gaze_mutex);
-            std::cout << gaze_history.back()[0] << "-" << gaze_history.back()[0] << std::endl;
             predicted_deg = predictor.predict(gaze_history);
             predicted = gazeAngleToNorm(predicted_deg.first, predicted_deg.second);
 
-            //normalize to screen space
+            // normalize to screen space
             float normRawE = angleToNormRadius(rawError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
             float normDeltaE = angleToNormRadius(deltaError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-            avgpredError+= rawError;
+            avgpredError += rawError;
 
-            circleVector.push_back(computeCircleCoverage(normGaze, INNER_R, predicted, lastRadius));
+            // lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, glm::vec2(0.5f, 0.5f), normRawE, normDeltaE);
+            //  lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, 0.0f, 0.0f);
 
-            lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, normRawE, normDeltaE);
-            //lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, 0.0f, 0.0f);
-            //lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, angleToNormRadius(1.57, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT), 0.0);
-            
+            updateFoveationTexture(INNER_R, MIDDLE_R, predicted, normRawE, normDeltaE);
             pastError = rawError;
         }
 
@@ -200,6 +179,23 @@ int main()
         glGetQueryObjectuiv(queryFragment, GL_QUERY_RESULT, &fragmentsGenerated);
         averageInvocation += fragmentsGenerated;
         glDisable(GL_DEPTH_TEST);
+        stbi_flip_vertically_on_write(1);
+        unsigned char *pixelData = (unsigned char *)malloc(SCR_WIDTH * SCR_HEIGHT * 3);
+
+        glReadPixels(0, 0, SCR_WIDTH, SCR_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, pixelData);
+        // flip vertically
+        for (int y = 0; y < static_cast<int>(SCR_HEIGHT) / 2; y++)
+        {
+            uint8_t *rowTop = pixelData + y * SCR_WIDTH * 3;
+            uint8_t *rowBottom = pixelData + (SCR_HEIGHT - 1 - y) * SCR_WIDTH * 3;
+            for (int x = 0; x < static_cast<int>(SCR_WIDTH) * 3; x++)
+            {
+                std::swap(rowTop[x], rowBottom[x]);
+            }
+        }
+        encoder.addFrame(pixelData);
+        free(pixelData);
+
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT);
         screenShader.use();
@@ -210,7 +206,7 @@ int main()
         screenShader.setInt("screenTexture", 0);
         screenShader.setVec2("predicted", predicted);
         if (gaze_history.size() > 0)
-            screenShader.setVec2("true_gaze", normGaze);
+            screenShader.setVec2("true_gaze", final);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glfwSwapBuffers(window);
@@ -224,21 +220,13 @@ int main()
         totalFrameCount++;
     }
 
-    float meanCircle = std::reduce(circleVector.begin(), circleVector.end()) / circleVector.size();
     std::cout << "Avg frags: " << averageInvocation / totalFrameCount << std::endl;
-    std::cout << "Average Coverage: " << meanCircle << std::endl;
-    std::cout << "Average pred error: " << avgpredError / gazeSeq.size();
+    std::cout << "Average pred error: " << avgpredError / totalFrameCount;
 
     glfwTerminate();
+    encoder.finish();
     return 0;
 }
-
-//void updateGazeSeq()
-//{
-//    while (running){
-//        getGaze();
-//    }
-//}
 
 void renderScene(Shader &shader, Model model)
 {
@@ -324,13 +312,14 @@ void scroll_callback(GLFWwindow *window, double xoffest, double yoffset)
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
-void checkGLError(std::string message){
-        GLenum err;
-        while ((err = glGetError()) != GL_NO_ERROR)
-            std::cout << message << err << std::endl;
+void checkGLError(std::string message)
+{
+    GLenum err;
+    while ((err = glGetError()) != GL_NO_ERROR)
+        std::cout << message << err << std::endl;
 }
 
-GLFWwindow* initGLFW()
+GLFWwindow *initGLFW()
 {
     if (!glfwInit())
     {
@@ -342,7 +331,7 @@ GLFWwindow* initGLFW()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* win = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "VRS", nullptr, nullptr);
+    GLFWwindow *win = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "VRS", nullptr, nullptr);
     if (!win)
     {
         std::cerr << "Failed to create GLFW window" << std::endl;
@@ -375,14 +364,13 @@ void initQuad()
 {
     float quadVertices[] = {
         // positions   // texCoords
-        -1.0f,  1.0f,  0.0f, 1.0f,
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
+        -1.0f, 1.0f, 0.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+        1.0f, -1.0f, 1.0f, 0.0f,
 
-        -1.0f,  1.0f,  0.0f, 1.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f, 1.0f
-    };
+        -1.0f, 1.0f, 0.0f, 1.0f,
+        1.0f, -1.0f, 1.0f, 0.0f,
+        1.0f, 1.0f, 1.0f, 1.0f};
     unsigned int quadVBO;
     glGenVertexArrays(1, &quadVAO);
     glGenBuffers(1, &quadVBO);
@@ -391,10 +379,10 @@ void initQuad()
     glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
 
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
 
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
     glBindVertexArray(0);
 }
 
@@ -422,7 +410,8 @@ void initFramebuffers()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-std::pair<float, float> computeError(std::pair<float, float> predicted_deg, std::array<float, 2> current, float pastError) {
+std::pair<float, float> computeError(std::pair<float, float> predicted_deg, std::array<float, 2> current, float pastError)
+{
 
     float dx = predicted_deg.first - current[0];
     float dy = predicted_deg.second - current[1];
