@@ -55,11 +55,11 @@ unsigned int fbo;
 unsigned int texture;
 
 // GAZE STUFF
-std::vector<Gaze> gazeSeq;
 std::deque<std::array<float, 2>> gaze_history;
+std::vector<Gaze> gaze_record;
+std::vector<Gaze> predicted_record;
 glm::vec2 predicted;
 std::pair<float, float> predicted_deg;
-bool useGazeSequence = false;
 glm::vec2 final;
 
 int main()
@@ -81,7 +81,6 @@ int main()
         return -1;
 
     initializeFoveation();
-    using clock = std::chrono::high_resolution_clock;
 
     // OPENGL STATE
     glEnable(GL_DEPTH_TEST);
@@ -99,9 +98,6 @@ int main()
     initQuad();
     initFramebuffers();
 
-    auto init = clock::now();
-    double elapsed;
-
     std::pair<float, float> predicted_deg;
     float pastError = 0.0f;
     int totalFrameCount = 0;
@@ -112,19 +108,37 @@ int main()
     glGenQueries(1, &queryFragment);
     float averageInvocation = 0.0f;
 
-    VideoEncoder encoder("output.mp4", SCR_WIDTH, SCR_HEIGHT, 20);
+    VideoEncoder encoder("../output/video.mp4", SCR_WIDTH, SCR_HEIGHT, 60);
+
+    float orbitRadius = 15.0f; // distance from center
+    float orbitHeight = 1.5f;  // y (up) coordinate
+    float orbitSpeed = 1.5f;   // radians per second
+    glm::vec3 orbitCenter = camera.Position;
+    float orbitAngle = 0.0f; // persistent angle (make static/global)
+
+    const float fps = 60.0f;
+    const float fixed_dt = 1.0f / fps; // seconds per frame (deterministic)
 
     while (!glfwWindowShouldClose(window))
     {
-        auto now = clock::now();
-        elapsed = std::chrono::duration<double, std::milli>(now - init).count();
-        if (elapsed > gazeSeqq.getLastTimestamp())
-            break;
 
+        double time_ms = totalFrameCount * fixed_dt * 1000.0;
         processInput(window);
 
+        orbitAngle += orbitSpeed * fixed_dt;
+        if (orbitAngle > glm::two_pi<float>())
+            break;
+        // compute camera position on circle
+        glm::vec3 camPos;
+        camPos.x = orbitCenter.x + orbitRadius * cos(orbitAngle);
+        camPos.y = orbitCenter.y + orbitHeight;
+        camPos.z = orbitCenter.z + orbitRadius * sin(orbitAngle);
+
+        // point camera toward center
+        camera.Position = camPos;
+
         // ========== GET GAZE POINTS ==========
-        Gazes lastGaze = gazeSeqq.getLatestGaze(elapsed);
+        Gaze lastGaze = gazeSeqq.getLatestGaze(time_ms);
         float gaze_deg_x = lastGaze.x;
         float gaze_deg_y = lastGaze.y; // pixelsToDegreesFromNormalized(lastGaze.x, lastGaze.y);
         final = gazeAngleToNorm(gaze_deg_x, gaze_deg_y);
@@ -138,6 +152,7 @@ int main()
             auto [rawError, deltaError] = computeError(predicted_deg, gaze_history.back(), pastError);
             predicted_deg = predictor.predict(gaze_history);
             predicted = gazeAngleToNorm(predicted_deg.first, predicted_deg.second);
+            gaze_record.push_back(Gaze{lastGaze.ts, lastGaze.event, (predicted[0] + 1.0) / 2.0, (predicted[1] + 1.0) / 2.0, (lastGaze.xT + 1.0) / 2.0 * SCR_WIDTH, (lastGaze.yT + 1.0) / 2.0 * SCR_HEIGHT});
 
             // normalize to screen space
             float normRawE = angleToNormRadius(rawError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
@@ -220,8 +235,10 @@ int main()
         totalFrameCount++;
     }
 
+    saveGazeRecords(gaze_record, "../output/records.csv");
+
     std::cout << "Avg frags: " << averageInvocation / totalFrameCount << std::endl;
-    std::cout << "Average pred error: " << avgpredError / totalFrameCount;
+    std::cout << "Average pred error: " << avgpredError / totalFrameCount << std::endl;
 
     glfwTerminate();
     encoder.finish();

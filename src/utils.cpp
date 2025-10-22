@@ -8,8 +8,6 @@
 #include <sstream>
 #include <iostream>
 
-
-
 float angleToNormRadius(float deg, float diagInInches, float distMM, int scrWidth, int scrHeight)
 {
     float diagPx = std::sqrt(scrWidth * scrWidth + scrHeight * scrHeight);
@@ -63,64 +61,20 @@ std::pair<float, float> pixelsToDegreesFromNormalized(float norm_x, float norm_y
     return {deg_x, deg_y};
 }
 
-float computeCircleCoverage(glm::vec2 center1, float r1, glm::vec2 center2, float r2)
+void saveGazeRecords(const std::vector<Gaze> &gaze_record, const std::string &path)
 {
-    float d = glm::distance(center1, center2);
 
-    // No overlap
-    if (d >= r1 + r2)
-        return 0.0f;
-
-    // Circle 1 fully inside Circle 2
-    if (d <= std::abs(r2 - r1) && r2 > r1)
-        return 1.0f;
-
-    // Circle 2 fully inside Circle 1
-    if (d <= std::abs(r2 - r1) && r1 > r2)
-        return (M_PI * r2 * r2) / (M_PI * r1 * r1);
-
-    float r1_sq = r1 * r1;
-    float r2_sq = r2 * r2;
-
-    float alpha = std::acos((r1_sq + d * d - r2_sq) / (2.0f * r1 * d));
-    float beta = std::acos((r2_sq + d * d - r1_sq) / (2.0f * r2 * d));
-
-    float intersection_area =
-        r1_sq * alpha + r2_sq * beta -
-        0.5f * std::sqrt(
-                   (-d + r1 + r2) *
-                   (d + r1 - r2) *
-                   (d - r1 + r2) *
-                   (d + r1 + r2));
-
-    float circle1_area = M_PI * r1_sq;
-
-    return intersection_area / circle1_area;
-}
-
-bool loadGazeSequence(const std::string& path, std::vector<Gaze>& gazeSeq)
-{
-    std::ifstream file(path);
-    if (!file.is_open())
+    std::ofstream ofs(path);
+    if (!ofs.is_open())
     {
-        std::cerr << "Failed to open gaze sequence file: " << path << std::endl;
-        return false;
+        std::cerr << "[saveGazeRecords] error: cannot open file " << path << '\n';
+        return;
     }
 
-    std::string line;
-    while (std::getline(file, line))
+    ofs << "x,y,xT,yT\n";
+    for (size_t i = 0; i < gaze_record.size(); i++)
     {
-        std::stringstream ss(line);
-        double timestamp;
-        float x, y;
-        char comma1, comma2;
-        ss >> timestamp >> comma1 >> x >> comma2 >> y;
-        if (ss.fail())
-        {
-            std::cerr << "Malformed line in gaze sequence file: " << line << std::endl;
-            continue;
-        }
-        gazeSeq.push_back({timestamp, x, y});
+        ofs << gaze_record[i].x << ", " << gaze_record[i].y << ", " << gaze_record[i].xT << " ," << gaze_record[i].yT << " \n";
     }
-    return true;
+    ofs.close();
 }

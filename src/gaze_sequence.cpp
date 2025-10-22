@@ -54,7 +54,7 @@ void GazeSequence::readSequence(const std::string &path)
         }
         try
         {
-            Gazes gaze = {std::stoi(toks[0]), std::stoi(toks[7]), std::stod(toks[1]), std::stod(toks[2]), std::stod(toks[4]), std::stod(toks[5])};
+            Gaze gaze = {std::stoi(toks[0]), std::stoi(toks[7]), std::stod(toks[1]), std::stod(toks[2]), std::stod(toks[4]), std::stod(toks[5])};
             gazeSequence.push_back(gaze);
         }
         catch (const std::exception &ex)
@@ -72,7 +72,7 @@ void GazeSequence::undersample(double og_sampling_rate, double target_sampling_r
     const int tLast = gazeSequence.back().ts;
     const double target_period_ms = 1000.0 / target_sampling_rate; // ms per sample
 
-    std::vector<Gazes> target_sequence;
+    std::vector<Gaze> target_sequence;
     target_sequence.reserve(static_cast<size_t>((tLast - t0) / std::max(1.0, target_period_ms) + 4));
 
     size_t idx = 0;
@@ -94,7 +94,7 @@ void GazeSequence::undersample(double og_sampling_rate, double target_sampling_r
               << " samples at " << target_sampling_rate << " Hz (period " << target_period_ms << " ms)" << std::endl;
 }
 
-Gazes GazeSequence::getLatestGaze(int ts)
+Gaze GazeSequence::getLatestGaze(int ts)
 {
     if (ts <= gazeSequence.front().ts)
         return gazeSequence.front();
@@ -109,7 +109,7 @@ Gazes GazeSequence::getLatestGaze(int ts)
         }
         return gazeSequence[cursor];
     }
-    return Gazes{0, 0, 0.0, 0.0, 0.0, 0.0};
+    return Gaze{0, 0, 0.0, 0.0, 0.0, 0.0};
 }
 
 double GazeSequence::getLastTimestamp()
