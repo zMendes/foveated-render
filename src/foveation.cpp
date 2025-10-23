@@ -27,6 +27,12 @@ void Foveation::createTexture(GLuint &texture)
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, shadingRateImageWidth, shadingRateImageHeight);
 }
 
+void Foveation::setParameters(float alpha, float beta)
+{
+    m_alpha = alpha;
+    m_beta = beta;
+}
+
 void Foveation::setupShadingRatePalette()
 {
     GLint palSize = 0;
@@ -48,6 +54,8 @@ void Foveation::setupShadingRatePalette()
 
 Foveation::Foveation(FoveationMode mode, float inner_r, float middle_r)
 {
+    m_alpha = ALPHA;
+    m_beta = BETA;
     MODE = mode;
     INNER_R = inner_r;
     MIDDLE_R = middle_r;
@@ -76,7 +84,7 @@ float Foveation::updateFoveationTexture(const glm::vec2 &point, float error, flo
 
     if (MODE == FoveationMode::ADAPTIVE)
     {
-        float dynamicError = ALPHA * error + BETA * deltaError;
+        float dynamicError = m_alpha * error + m_beta * deltaError;
         innerR += dynamicError;
         middleR += dynamicError;
     }

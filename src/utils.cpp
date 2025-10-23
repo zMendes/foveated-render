@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <filesystem>
 
 float angleToNormRadius(float deg, float diagInInches, float distMM, int scrWidth, int scrHeight)
 {
@@ -76,5 +77,24 @@ void saveGazeRecords(const std::vector<Gaze> &gaze_record, const std::string &pa
     {
         ofs << gaze_record[i].x << ", " << gaze_record[i].y << ", " << gaze_record[i].xT << " ," << gaze_record[i].yT << " \n";
     }
+    ofs.close();
+}
+
+void savePerformanceRecord(const std::string &path, const std::string &name, double alpha, double beta, double perf)
+{
+    bool file_exists = std::filesystem::exists(path);
+
+    std::ofstream ofs(path, std::ios::app);
+    if (!ofs.is_open())
+    {
+        std::cerr << "[savePerformanceRecord] error: cannot open file " << path << '\n';
+        return;
+    }
+
+    if (!file_exists)
+        ofs << "name,alpha,beta,perf,quality\n";
+
+    ofs << name << "," << alpha << "," << beta << "," << perf << ",\n";
+
     ofs.close();
 }

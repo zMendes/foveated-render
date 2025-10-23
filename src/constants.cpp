@@ -18,8 +18,8 @@ float diagonal_in_inches = 24.0f;
 float ASPECT_RATIO = (float)SCR_WIDTH / (float)SCR_HEIGHT;
 float near = 0.1f;
 float far = 10000.0f;
-float INNER_R_DEG = 5.5f;
-float MIDDLE_R_DEG = 10.2f;
+float INNER_R_DEG = 7.5f;
+float MIDDLE_R_DEG = 1.2f;
 
 float AVERAGE_PREDICTION_ERROR = 1.5f;
 

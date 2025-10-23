@@ -73,12 +73,15 @@ int main(int argc, char **argv)
         return -1;
 
     std::string modeStr = "ADAPTIVE"; // default
+    std::string filename = "video";
     if (argc > 1)
     {
         modeStr = argv[1];
         for (auto &c : modeStr)
             c = static_cast<char>(toupper(c));
     }
+    if (argc >= 3)
+        filename = argv[2];
 
     FoveationMode mode = FoveationMode::ADAPTIVE;
     if (modeStr == "STATIC")
@@ -109,6 +112,18 @@ int main(int argc, char **argv)
 
     Foveation foveation(mode, INNER_R, MIDDLE_R);
 
+    float alpha, beta;
+    if (argc >= 5)
+    {
+        alpha = atof(argv[3]);
+        beta = atof(argv[4]);
+        foveation.setParameters(alpha, beta);
+    }
+    else
+    {
+        alpha = ALPHA;
+        beta = BETA;
+    }
     GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
 
     GazeSequence gazeSeqq("/home/loe/foveaflex/gaze_predictor/GazeBase_v2_0/Round_1/Subject_1001/S1/S1_Random_Saccades/S_1001_S1_RAN.csv", 1000.0, 60.0);
@@ -136,9 +151,12 @@ int main(int argc, char **argv)
     GLuint queryFragment;
     GLuint fragmentsGenerated;
     glGenQueries(1, &queryFragment);
-    float averageInvocation = 0.0f;
+    float totalFragmentInvocation = 0.0f;
 
-    VideoEncoder encoder("../output/video.mp4", SCR_WIDTH, SCR_HEIGHT, 60);
+    std::ostringstream oss;
+    oss << "../output/" << filename << ".mp4";
+
+    VideoEncoder encoder(oss.str(), SCR_WIDTH, SCR_HEIGHT, 60);
 
     float orbitRadius = 15.0f; // distance from center
     float orbitHeight = 1.5f;  // y (up) coordinate
@@ -189,9 +207,6 @@ int main(int argc, char **argv)
             float normDeltaE = angleToNormRadius(deltaError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
             avgpredError += rawError;
 
-            // lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, glm::vec2(0.5f, 0.5f), normRawE, normDeltaE);
-            //  lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, 0.0f, 0.0f);
-
             foveation.updateFoveationTexture(predicted, normRawE, normDeltaE);
             pastError = rawError;
         }
@@ -221,7 +236,7 @@ int main(int argc, char **argv)
         glEndQuery(GL_FRAGMENT_SHADER_INVOCATIONS_ARB);
 
         glGetQueryObjectuiv(queryFragment, GL_QUERY_RESULT, &fragmentsGenerated);
-        averageInvocation += fragmentsGenerated;
+        totalFragmentInvocation += fragmentsGenerated;
         glDisable(GL_DEPTH_TEST);
         stbi_flip_vertically_on_write(1);
         unsigned char *pixelData = (unsigned char *)malloc(SCR_WIDTH * SCR_HEIGHT * 3);
@@ -265,9 +280,7 @@ int main(int argc, char **argv)
     }
 
     saveGazeRecords(gaze_record, "../output/records.csv");
-
-    std::cout << "Avg frags: " << averageInvocation / totalFrameCount << std::endl;
-    std::cout << "Average pred error: " << avgpredError / totalFrameCount << std::endl;
+    savePerformanceRecord("../output/results.csv", filename, alpha, beta, totalFragmentInvocation);
 
     glfwTerminate();
     encoder.finish();
