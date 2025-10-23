@@ -62,16 +62,8 @@ glm::vec2 predicted;
 std::pair<float, float> predicted_deg;
 glm::vec2 final;
 
-int main()
+int main(int argc, char **argv)
 {
-    std::cout << "Initializing..." << std::endl;
-    // Defining normalize radius for foveated rendering
-    float INNER_R = angleToNormRadius(INNER_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-    float MIDDLE_R = angleToNormRadius(MIDDLE_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
-
-    GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
-
-    GazeSequence gazeSeqq("/home/loe/foveaflex/gaze_predictor/GazeBase_v2_0/Round_1/Subject_1001/S1/S1_Random_Saccades/S_1001_S1_RAN.csv", 1000.0, 60.0);
 
     GLFWwindow *window = initGLFW();
     if (!window)
@@ -80,11 +72,49 @@ int main()
     if (!initGLAD())
         return -1;
 
-    initializeFoveation();
+    std::string modeStr = "ADAPTIVE"; // default
+    if (argc > 1)
+    {
+        modeStr = argv[1];
+        for (auto &c : modeStr)
+            c = static_cast<char>(toupper(c));
+    }
+
+    FoveationMode mode = FoveationMode::ADAPTIVE;
+    if (modeStr == "STATIC")
+        mode = FoveationMode::STATIC;
+    else if (modeStr == "PADDED" || modeStr == "PAD")
+        mode = FoveationMode::PADDED;
+    else if (modeStr == "ADAPTIVE")
+        mode = FoveationMode::ADAPTIVE;
+    else if (modeStr == "NO")
+        mode = FoveationMode::NO;
+    else
+    {
+        std::cerr << "Unknown mode '" << modeStr << "'. Expected STATIC, PADDED, or ADAPTIVE.\n";
+        return 1;
+    }
+
+    std::cerr << "Running on Mode " << modeStr << std::endl;
+
+    float INNER_R = angleToNormRadius(INNER_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
+    float MIDDLE_R = angleToNormRadius(MIDDLE_R_DEG, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
+
+    if (mode == FoveationMode::PADDED)
+    {
+        float padNorm = angleToNormRadius(AVERAGE_PREDICTION_ERROR, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
+        INNER_R += padNorm;
+        MIDDLE_R += padNorm;
+    }
+
+    Foveation foveation(mode, INNER_R, MIDDLE_R);
+
+    GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
+
+    GazeSequence gazeSeqq("/home/loe/foveaflex/gaze_predictor/GazeBase_v2_0/Round_1/Subject_1001/S1/S1_Random_Saccades/S_1001_S1_RAN.csv", 1000.0, 60.0);
 
     // OPENGL STATE
     glEnable(GL_DEPTH_TEST);
-    glEnable(NVShadingRate::IMAGE);
 
     Shader shader("../shaders/vrs.vs", "../shaders/vrs.fs");
     Shader screenShader("../shaders/screen.vs", "../shaders/screen.fs");
@@ -162,7 +192,7 @@ int main()
             // lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, glm::vec2(0.5f, 0.5f), normRawE, normDeltaE);
             //  lastRadius = updateFoveationTexture(INNER_R, MIDDLE_R, predicted, 0.0f, 0.0f);
 
-            updateFoveationTexture(INNER_R, MIDDLE_R, predicted, normRawE, normDeltaE);
+            foveation.updateFoveationTexture(predicted, normRawE, normDeltaE);
             pastError = rawError;
         }
 
@@ -171,8 +201,7 @@ int main()
         glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.f, 0.0f));
         model = glm::scale(model, glm::vec3(0.20f));
         shader.use();
-        glEnable(NVShadingRate::IMAGE);
-        bindFoveationTexture();
+        foveation.bindFoveationTexture();
 
         shader.setMat4("view", view);
         shader.setMat4("model", model);

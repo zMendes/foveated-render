@@ -19,6 +19,7 @@ extern float near;
 extern float far;
 extern float INNER_R_DEG;
 extern float MIDDLE_R_DEG;
+extern float AVERAGE_PREDICTION_ERROR;
 
 extern float ALPHA;
 extern float BETA;

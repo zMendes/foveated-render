@@ -12,21 +12,13 @@ PFNGLBINDSHADINGRATEIMAGENVPROC glBindShadingRateImageNV = nullptr;
 typedef void(APIENTRYP PFNGLSHADINGRATEIMAGEPALETTENVPROC)(GLuint viewport, GLuint first, GLsizei count, const GLenum *rates);
 PFNGLSHADINGRATEIMAGEPALETTENVPROC glShadingRateImagePaletteNV = nullptr;
 
-// Internal variables (file-local static)
-static GLuint foveationTexture = 0;
-static std::vector<uint8_t> shadingRateImageData;
-static uint32_t shadingRateImageWidth = 0;
-static uint32_t shadingRateImageHeight = 0;
-static GLint shadingRateImageTexelWidth = 0;
-static GLint shadingRateImageTexelHeight = 0;
-
-void loadNVShadingRateImageFunctions()
+void Foveation::loadNVShadingRateImageFunctions()
 {
     glBindShadingRateImageNV = (PFNGLBINDSHADINGRATEIMAGENVPROC)glfwGetProcAddress("glBindShadingRateImageNV");
     glShadingRateImagePaletteNV = (PFNGLSHADINGRATEIMAGEPALETTENVPROC)glfwGetProcAddress("glShadingRateImagePaletteNV");
 }
 
-void createTexture(GLuint &texture)
+void Foveation::createTexture(GLuint &texture)
 {
     if (texture)
         glDeleteTextures(1, &texture);
@@ -35,7 +27,7 @@ void createTexture(GLuint &texture)
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, shadingRateImageWidth, shadingRateImageHeight);
 }
 
-void setupShadingRatePalette()
+void Foveation::setupShadingRatePalette()
 {
     GLint palSize = 0;
     glGetIntegerv(NVShadingRate::PALETTE_SIZE, &palSize);
@@ -54,8 +46,13 @@ void setupShadingRatePalette()
     glShadingRateImagePaletteNV(0, 0, palSize, palette.data());
 }
 
-void initializeFoveation()
+Foveation::Foveation(FoveationMode mode, float inner_r, float middle_r)
 {
+    MODE = mode;
+    INNER_R = inner_r;
+    MIDDLE_R = middle_r;
+    if (MODE != FoveationMode::NO)
+        glEnable(NVShadingRate::IMAGE);
     loadNVShadingRateImageFunctions();
     glGetIntegerv(NVShadingRate::TEXEL_HEIGHT, &shadingRateImageTexelHeight);
     glGetIntegerv(NVShadingRate::TEXEL_WIDTH, &shadingRateImageTexelWidth);
@@ -68,16 +65,21 @@ void initializeFoveation()
     setupShadingRatePalette();
 }
 
-float updateFoveationTexture(float INNER_R, float MIDDLE_R, const glm::vec2 &point, float error, float deltaError)
+float Foveation::updateFoveationTexture(const glm::vec2 &point, float error, float deltaError)
 {
 
     float centerX = point.x;
     float centerY = point.y;
 
-    float dynamicError = ALPHA * error + BETA * deltaError;
+    float innerR = INNER_R;
+    float middleR = MIDDLE_R;
 
-    float innerR = INNER_R + dynamicError;
-    float middleR = MIDDLE_R + dynamicError;
+    if (MODE == FoveationMode::ADAPTIVE)
+    {
+        float dynamicError = ALPHA * error + BETA * deltaError;
+        innerR += dynamicError;
+        middleR += dynamicError;
+    }
 
     for (uint32_t y = 0; y < shadingRateImageHeight; ++y)
     {
@@ -96,7 +98,6 @@ float updateFoveationTexture(float INNER_R, float MIDDLE_R, const glm::vec2 &poi
         }
     }
 
-
     glBindTexture(GL_TEXTURE_2D, foveationTexture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, shadingRateImageWidth, shadingRateImageHeight,
                     GL_RED_INTEGER, GL_UNSIGNED_BYTE, shadingRateImageData.data());
@@ -104,12 +105,12 @@ float updateFoveationTexture(float INNER_R, float MIDDLE_R, const glm::vec2 &poi
     return innerR;
 }
 
-void bindFoveationTexture()
+void Foveation::bindFoveationTexture()
 {
     glBindShadingRateImageNV(foveationTexture);
 }
 
-void cleanupFoveation()
+void Foveation::cleanupFoveation()
 {
     if (foveationTexture)
         glDeleteTextures(1, &foveationTexture);

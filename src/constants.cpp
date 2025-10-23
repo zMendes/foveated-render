@@ -21,5 +21,7 @@ float far = 10000.0f;
 float INNER_R_DEG = 5.5f;
 float MIDDLE_R_DEG = 10.2f;
 
+float AVERAGE_PREDICTION_ERROR = 1.5f;
+
 float ALPHA = 0.2f;
 float BETA = 0.5;
