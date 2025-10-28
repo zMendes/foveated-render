@@ -15,7 +15,7 @@ float angleToNormRadius(float deg, float diagInInches, float distMM, int scrWidt
     float diagMM = diagInInches * 25.4f;
     float pixelSizeMM = diagMM / diagPx;
 
-    float rad = glm::radians(deg);
+    float rad = deg2rad(deg);
     float sizeMM = 2.0f * distMM * std::tan(rad / 2.0f);
     float sizePx = sizeMM / pixelSizeMM;
 
