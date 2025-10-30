@@ -80,7 +80,7 @@ void saveGazeRecords(const std::vector<Gaze> &gaze_record, const std::string &pa
     ofs.close();
 }
 
-void savePerformanceRecord(const std::string &path, const std::string &name, double alpha, double beta, double perf)
+void savePerformanceRecord(const std::string &path, const std::string &name, std::string gazeInputFileName, double alpha, double beta, double perf)
 {
     bool file_exists = std::filesystem::exists(path);
 
@@ -92,9 +92,9 @@ void savePerformanceRecord(const std::string &path, const std::string &name, dou
     }
 
     if (!file_exists)
-        ofs << "name,alpha,beta,perf,quality\n";
+        ofs << "name,gaze_sequence, alpha,beta,perf,quality\n";
 
-    ofs << name << "," << alpha << "," << beta << "," << perf << ",\n";
+    ofs << name << "," << gazeInputFileName << "," << alpha << "," << beta << "," << perf << ",\n";
 
     ofs.close();
 }

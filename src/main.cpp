@@ -1,3 +1,4 @@
+#include <getopt.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -21,6 +22,7 @@
 #include <deque>
 #include <chrono>
 #include <numeric>
+#include <filesystem>
 
 GLFWwindow *initGLFW();
 bool initGLAD();
@@ -41,7 +43,7 @@ float posY = 0.5;
 bool isCursorEnabled = false;
 
 // CAMERA
-Camera camera(glm::vec3(-166.95f, 98.45f, -13.21f), glm::vec3(0.0f, 1.0f, 0.0f), 0.89f, -17.04f);
+Camera camera(glm::vec3(-180.744f, 172.131f, -10.54f), glm::vec3(0.0f, 1.0f, 0.0f), 0.89f, -17.04f);
 bool firstMouse = true;
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
@@ -61,9 +63,20 @@ std::vector<Gaze> predicted_record;
 glm::vec2 predicted;
 std::pair<float, float> predicted_deg;
 glm::vec2 final;
+glm::vec2 norm_target;
+
+static struct option long_options[] = {
+    {"mode", required_argument, 0, 'm'},
+    {"input_seq", required_argument, 0, 'i'},
+    {"output_file", required_argument, 0, 'o'},
+    {"alpha", required_argument, 0, 'a'},
+    {"beta", required_argument, 0, 'b'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}};
 
 int main(int argc, char **argv)
 {
+    camera.Front = glm::vec3(0.945585, -0.324905, -0.0175074);
 
     GLFWwindow *window = initGLFW();
     if (!window)
@@ -72,16 +85,42 @@ int main(int argc, char **argv)
     if (!initGLAD())
         return -1;
 
+    float alpha = ALPHA;
+    float beta = BETA;
+
     std::string modeStr = "ADAPTIVE"; // default
     std::string filename = "video";
-    if (argc > 1)
+    std::string gazeInput = "/home/loe/foveaflex/gaze_predictor/GazeBase_v2_0/Round_1/Subject_1001/S1/S1_Random_Saccades/S_1001_S1_RAN.csv";
+
+    int opt;
+    int opt_index = 0;
+    while ((opt = getopt_long(argc, argv, "m:i:o:a:b:h", long_options, &opt_index)) != -1)
     {
-        modeStr = argv[1];
-        for (auto &c : modeStr)
-            c = static_cast<char>(toupper(c));
+        switch (opt)
+        {
+        case 'm':
+            modeStr = std::string(optarg);
+            // normalize to uppercase
+            for (auto &c : modeStr)
+                c = static_cast<char>(toupper(c));
+            break;
+        case 'i':
+            gazeInput = std::string(optarg);
+            break;
+        case 'o':
+            filename = std::string(optarg);
+            break;
+        case 'a':
+            alpha = atof(optarg);
+            break;
+        case 'b':
+            beta = atof(optarg);
+            break;
+        case '?': // unknown option
+        default:
+            break;
+        }
     }
-    if (argc >= 3)
-        filename = argv[2];
 
     FoveationMode mode = FoveationMode::ADAPTIVE;
     if (modeStr == "STATIC")
@@ -109,24 +148,14 @@ int main(int argc, char **argv)
         INNER_R += padNorm;
         MIDDLE_R += padNorm;
     }
-
     Foveation foveation(mode, INNER_R, MIDDLE_R);
 
-    float alpha, beta;
-    if (argc >= 5)
-    {
-        alpha = atof(argv[3]);
-        beta = atof(argv[4]);
-        foveation.setParameters(alpha, beta);
-    }
-    else
-    {
-        alpha = ALPHA;
-        beta = BETA;
-    }
+    foveation.setParameters(alpha, beta);
     GazePredictor predictor("/home/loe/Downloads/saccade_predictor.onnx");
 
-    GazeSequence gazeSeqq("/home/loe/foveaflex/gaze_predictor/GazeBase_v2_0/Round_1/Subject_1001/S1/S1_Random_Saccades/S_1001_S1_RAN.csv", 1000.0, 60.0);
+#include <filesystem>
+    GazeSequence gazeSeqq(gazeInput, 1000.0, 60.0);
+    std::string gazeInputFileName = std::filesystem::path(gazeInput).filename();
 
     // OPENGL STATE
     glEnable(GL_DEPTH_TEST);
@@ -158,32 +187,15 @@ int main(int argc, char **argv)
 
     VideoEncoder encoder(oss.str(), SCR_WIDTH, SCR_HEIGHT, 60);
 
-    float orbitRadius = 15.0f; // distance from center
-    float orbitHeight = 1.5f;  // y (up) coordinate
-    float orbitSpeed = 1.5f;   // radians per second
-    glm::vec3 orbitCenter = camera.Position;
-    float orbitAngle = 0.0f; // persistent angle (make static/global)
-
     const float fps = 60.0f;
-    const float fixed_dt = 1.0f / fps; // seconds per frame (deterministic)
+    const float fixed_dt = 1.0f / fps;
 
     while (!glfwWindowShouldClose(window))
     {
 
         double time_ms = totalFrameCount * fixed_dt * 1000.0;
         processInput(window);
-
-        orbitAngle += orbitSpeed * fixed_dt;
-        if (orbitAngle > glm::two_pi<float>())
-            break;
-        // compute camera position on circle
-        glm::vec3 camPos;
-        camPos.x = orbitCenter.x + orbitRadius * cos(orbitAngle);
-        camPos.y = orbitCenter.y + orbitHeight;
-        camPos.z = orbitCenter.z + orbitRadius * sin(orbitAngle);
-
-        // point camera toward center
-        camera.Position = camPos;
+        camera.ProcessKeyboard(FORWARD, fixed_dt * 0.5);
 
         // ========== GET GAZE POINTS ==========
         Gaze lastGaze = gazeSeqq.getLatestGaze(time_ms);
@@ -200,7 +212,8 @@ int main(int argc, char **argv)
             auto [rawError, deltaError] = computeError(predicted_deg, gaze_history.back(), pastError);
             predicted_deg = predictor.predict(gaze_history);
             predicted = gazeAngleToNorm(predicted_deg.first, predicted_deg.second);
-            gaze_record.push_back(Gaze{lastGaze.ts, lastGaze.event, (predicted[0] + 1.0) / 2.0, (predicted[1] + 1.0) / 2.0, (lastGaze.xT + 1.0) / 2.0 * SCR_WIDTH, (lastGaze.yT + 1.0) / 2.0 * SCR_HEIGHT});
+            norm_target = gazeAngleToNorm(lastGaze.xT, lastGaze.yT);
+            gaze_record.push_back(Gaze{lastGaze.ts, lastGaze.event, (predicted[0] + 1.0) / 2.0, (predicted[1] + 1.0) / 2.0, norm_target[0] * SCR_WIDTH, norm_target[1] * SCR_HEIGHT});
 
             // normalize to screen space
             float normRawE = angleToNormRadius(rawError, diagonal_in_inches, DIST_MM, SCR_WIDTH, SCR_HEIGHT);
@@ -265,7 +278,7 @@ int main(int argc, char **argv)
         screenShader.setInt("screenTexture", 0);
         screenShader.setVec2("predicted", predicted);
         if (gaze_history.size() > 0)
-            screenShader.setVec2("true_gaze", final);
+            screenShader.setVec2("true_gaze", norm_target);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glfwSwapBuffers(window);
@@ -280,7 +293,7 @@ int main(int argc, char **argv)
     }
 
     saveGazeRecords(gaze_record, "../output/records.csv");
-    savePerformanceRecord("../output/results.csv", filename, alpha, beta, totalFragmentInvocation);
+    savePerformanceRecord("../output/results.csv", filename, gazeInputFileName, alpha, beta, totalFragmentInvocation);
 
     glfwTerminate();
     encoder.finish();

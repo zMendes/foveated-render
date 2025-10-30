@@ -11,7 +11,7 @@ def main():
     args = sys.argv[1:]
     reference = args[0]
     foveated = args[1]
-    fv = pyfvvdp.fvvdp(display_name='standard_fhd', foveated=True)
+    fv = pyfvvdp.fvvdp(display_name='sdr_fhd_24', foveated=True)
 
     # read true gaze position
     fixations = []
@@ -23,8 +23,7 @@ def main():
                 y = float(row["yT"])
             except KeyError:
                 raise KeyError("CSV must have columns named xT and yT")
-            fixations.append((x, y))
-
+            fixations.append((x,y))
     reader = imageio.get_reader(f'../output/{reference}.mp4', 'ffmpeg')
     frames = [frame for frame in reader]
 
